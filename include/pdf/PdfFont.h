@@ -30,11 +30,11 @@ struct PdfFont
     std::string  baseName;      // e.g., "Helvetica"
     int          objectNumber;  // assigned during PDF construction
 
-    PdfFont(std::string alias, std::string baseName)
-        : alias(std::move(alias))
-        , baseName(std::move(baseName))
-        , objectNumber(-1)
-    {}
+PdfFont(std::string _alias, std::string _baseName)
+    : alias(std::move(_alias))
+    , baseName(std::move(_baseName))
+    , objectNumber(-1)
+{}
 };
 
 } // namespace pdf

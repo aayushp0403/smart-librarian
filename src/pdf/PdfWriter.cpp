@@ -163,8 +163,8 @@ void PdfWriter::write(
             stream.writeStr("<< /Type /Page\n");
             stream.writeF("   /Parent %d 0 R\n", pagesNum);
             stream.writeF("   /MediaBox [0 0 %.2f %.2f]\n",
-                          page.width(), page.height());
-            stream.writeF("   /Contents %d 0 R\n", alloc.contentObjNum);
+static_cast<double>(page.width()), static_cast<double>(page.height()));           
+ stream.writeF("   /Contents %d 0 R\n", alloc.contentObjNum);
 
             // Font resources dictionary
             if (!fontsCopy.empty()) {

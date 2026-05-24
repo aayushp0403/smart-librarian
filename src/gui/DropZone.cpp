@@ -7,6 +7,10 @@
 #include <QPainter>
 #include <QUrl>
 #include <QFileInfo>
+#include <QFileDialog>
+#include <QVBoxLayout>
+#include <QMouseEvent>
+#include <QCursor>
 
 namespace sl {
 namespace gui {
@@ -14,52 +18,121 @@ namespace gui {
 DropZone::DropZone(QWidget* parent)
     : QWidget(parent)
 {
-    // Tell Qt this widget accepts drop events.
-    // Without this, dragEnterEvent is never called.
     setAcceptDrops(true);
+    setMinimumHeight(160);
+    setCursor(Qt::PointingHandCursor);
 
-    // Minimum size so the zone is always visible
-    setMinimumHeight(120);
-
-    // Style: slightly rounded, visible background
-    setStyleSheet(
-        "DropZone {"
-        "  background-color: #F8F9FA;"
-        "  border-radius: 8px;"
+    // ── Browse button ─────────────────────────────────────────────
+    // Positioned at the bottom of the drop zone.
+    // We use a real QPushButton so it gets keyboard focus,
+    // hover states, and accessibility for free.
+    m_browseBtn = new QPushButton("Browse for Image...", this);
+    m_browseBtn->setFixedHeight(32);
+    m_browseBtn->setCursor(Qt::PointingHandCursor);
+    m_browseBtn->setStyleSheet(
+        "QPushButton {"
+        "  background-color: #2088FF;"
+        "  color: white;"
+        "  border: none;"
+        "  border-radius: 5px;"
+        "  font-size: 11px;"
+        "  font-weight: bold;"
+        "  padding: 0 16px;"
         "}"
+        "QPushButton:hover  { background-color: #1070EE; }"
+        "QPushButton:pressed{ background-color: #0055CC; }"
     );
+
+    // Layout: push button to bottom, leave top area for drop target
+    auto* layout = new QVBoxLayout(this);
+    layout->setContentsMargins(12, 8, 12, 10);
+    layout->setSpacing(0);
+    layout->addStretch();
+    layout->addWidget(m_browseBtn);
+
+    // Connect button click → openFileBrowser slot
+    connect(m_browseBtn, &QPushButton::clicked,
+            this, &DropZone::openFileBrowser);
 }
 
 QSize DropZone::sizeHint() const
 {
-    return QSize(500, 140);
+    return QSize(300, 170);
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// dragEnterEvent
+// openFileBrowser
 //
-// The user dragged something over us. We inspect the MIME data.
-// MIME (Multipurpose Internet Mail Extensions) is a standard
-// for describing data types. File drag-and-drop uses:
-//   "text/uri-list" — a list of file:// URLs
+// QFileDialog::getOpenFileNames — lets user select one or more files.
 //
-// If the drag contains file URLs, we accept it and change our
-// visual state. Otherwise we ignore it (the event propagates
-// to parent widgets and eventually the OS shows rejection cursor).
+// Filter string format: "Display Name (*.ext1 *.ext2);;Other (*.ext3)"
+// The ;; separator creates separate filter categories in the dialog.
+//
+// Why getOpenFileNames (plural) instead of getOpenFileName?
+//   Allows processing multiple images in one operation.
+//   Each selected file emits a separate imageDropped signal.
+//   MainWindow queues them — OCR processes one at a time.
+// ─────────────────────────────────────────────────────────────────────
+
+void DropZone::openFileBrowser()
+{
+    QStringList files = QFileDialog::getOpenFileNames(
+        this,                          // parent widget (centers dialog)
+        "Select Image File(s)",        // dialog title
+        QString(),                     // starting directory (empty = last used)
+        "Image Files (*.png *.jpg *.jpeg *.bmp *.tiff *.tif *.pnm);;"
+        "PNG Images (*.png);;"
+        "JPEG Images (*.jpg *.jpeg);;"
+        "TIFF Images (*.tif *.tiff);;"
+        "All Files (*)"
+    );
+
+    // Emit imageDropped for each selected file
+    for (const QString& path : files) {
+        if (!path.isEmpty()) {
+            emit imageDropped(path);
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// mousePressEvent
+//
+// Clicking anywhere on the drop zone (not just the button) also
+// opens the file browser. This makes the whole widget feel clickable,
+// which is a common UX pattern for drop zones.
+//
+// We check that the click isn't on the button itself (the button
+// handles its own clicks) to avoid triggering the dialog twice.
+// ─────────────────────────────────────────────────────────────────────
+
+void DropZone::mousePressEvent(QMouseEvent* event)
+{
+    // Only respond to left-click outside the button
+    if (event->button() == Qt::LeftButton &&
+        !m_browseBtn->geometry().contains(event->pos()))
+    {
+        openFileBrowser();
+    }
+    QWidget::mousePressEvent(event);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Drag and drop event handlers — unchanged from before
 // ─────────────────────────────────────────────────────────────────────
 
 void DropZone::dragEnterEvent(QDragEnterEvent* event)
 {
     if (event->mimeData()->hasUrls()) {
-        // Check if any URL is a supported image file
         const QList<QUrl> urls = event->mimeData()->urls();
         for (const QUrl& url : urls) {
             if (url.isLocalFile()) {
                 QString path = url.toLocalFile();
-                if (sl::ocr::ImageLoader::isSupported(path.toStdString())) {
+                if (sl::ocr::ImageLoader::isSupported(
+                        path.toStdString())) {
                     event->acceptProposedAction();
                     m_dragActive = true;
-                    update(); // trigger repaint for visual feedback
+                    update();
                     return;
                 }
             }
@@ -68,24 +141,12 @@ void DropZone::dragEnterEvent(QDragEnterEvent* event)
     event->ignore();
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// dragLeaveEvent — user dragged away without dropping
-// ─────────────────────────────────────────────────────────────────────
-
 void DropZone::dragLeaveEvent(QDragLeaveEvent* event)
 {
     m_dragActive = false;
     update();
     event->accept();
 }
-
-// ─────────────────────────────────────────────────────────────────────
-// dropEvent — user released the drag
-//
-// Extract file URLs from the MIME data.
-// For each valid image file, emit imageDropped().
-// One drop can contain multiple files.
-// ─────────────────────────────────────────────────────────────────────
 
 void DropZone::dropEvent(QDropEvent* event)
 {
@@ -97,89 +158,86 @@ void DropZone::dropEvent(QDropEvent* event)
         return;
     }
 
-    const QList<QUrl> urls = event->mimeData()->urls();
     bool accepted = false;
-
-    for (const QUrl& url : urls) {
+    for (const QUrl& url : event->mimeData()->urls()) {
         if (url.isLocalFile()) {
             QString path = url.toLocalFile();
-            if (sl::ocr::ImageLoader::isSupported(path.toStdString())) {
+            if (sl::ocr::ImageLoader::isSupported(
+                    path.toStdString())) {
                 emit imageDropped(path);
                 accepted = true;
             }
         }
     }
 
-    if (accepted) {
-        event->acceptProposedAction();
-    } else {
-        event->ignore();
-    }
+    accepted ? event->acceptProposedAction() : event->ignore();
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// paintEvent — custom rendering
+// paintEvent — custom drawing for the drop zone area
 //
-// QPainter is Qt's 2D drawing API.
-// We draw:
-//   - A dashed border rectangle (changes color when drag is active)
-//   - A center-aligned instruction text
-//   - An icon hint (↓ unicode arrow)
+// We draw the dashed border and instructional text in the upper
+// portion of the widget. The browse button occupies the bottom.
 //
-// QPainter must be constructed with 'this' as the device,
-// and is only valid within paintEvent. It is stack-allocated
-// and its destructor flushes the drawing commands to the screen.
+// buttonArea: reserve space at bottom for the button so the
+// text doesn't render on top of it.
 // ─────────────────────────────────────────────────────────────────────
 
 void DropZone::paintEvent(QPaintEvent*)
 {
-    QPainter painter(this);
-    painter.setRenderHint(QPainter::Antialiasing);
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
 
-    // Colors: change when drag is hovering
-    QColor borderColor = m_dragActive
-        ? QColor(0x20, 0x88, 0xFF)   // bright blue when active
-        : QColor(0xCC, 0xCC, 0xCC);  // gray when idle
-
-    QColor bgColor = m_dragActive
-        ? QColor(0xE8, 0xF4, 0xFF)   // light blue tint when active
-        : QColor(0xF8, 0xF9, 0xFA);  // near-white when idle
+    // The "drop target" area is above the button
+    int btnAreaHeight = m_browseBtn->height() + 18;
+    QRect dropArea(0, 0, width(), height() - btnAreaHeight);
 
     // Background
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(bgColor);
-    painter.drawRoundedRect(rect().adjusted(1,1,-1,-1), 8, 8);
+    QColor bg = m_dragActive
+        ? QColor(0xE3, 0xF2, 0xFF)
+        : QColor(0xF8, 0xF9, 0xFA);
+    p.setPen(Qt::NoPen);
+    p.setBrush(bg);
+    p.drawRoundedRect(rect().adjusted(1,1,-1,-1), 8, 8);
 
     // Dashed border
-    QPen borderPen(borderColor, 2, Qt::DashLine);
-    painter.setPen(borderPen);
-    painter.setBrush(Qt::NoBrush);
-    painter.drawRoundedRect(rect().adjusted(1,1,-1,-1), 8, 8);
-
-    // Icon and text
-    painter.setPen(m_dragActive
+    QColor border = m_dragActive
         ? QColor(0x20, 0x88, 0xFF)
-        : QColor(0x99, 0x99, 0x99));
+        : QColor(0xBB, 0xBB, 0xBB);
+    p.setPen(QPen(border, 2, Qt::DashLine));
+    p.setBrush(Qt::NoBrush);
+    p.drawRoundedRect(rect().adjusted(1,1,-1,-1), 8, 8);
 
-    QFont iconFont = painter.font();
-    iconFont.setPointSize(28);
-    painter.setFont(iconFont);
-    painter.drawText(
-        QRect(rect().x(), rect().y(), rect().width(), rect().height() / 2),
-        Qt::AlignHCenter | Qt::AlignBottom,
-        m_dragActive ? "⬇" : "📄"
+    // Icon — large, centered in the drop area
+    p.setPen(m_dragActive
+        ? QColor(0x20, 0x88, 0xFF)
+        : QColor(0xAA, 0xAA, 0xAA));
+
+    QFont iconFont = p.font();
+    iconFont.setPointSize(26);
+    p.setFont(iconFont);
+    p.drawText(
+        QRect(dropArea.x(), dropArea.y(),
+              dropArea.width(), dropArea.height() * 6 / 10),
+        Qt::AlignCenter,
+        m_dragActive ? "⬇" : "🖼"
     );
 
-    QFont textFont = painter.font();
-    textFont.setPointSize(11);
-    painter.setFont(textFont);
-    painter.drawText(
-        QRect(rect().x(), rect().height()/2,
-              rect().width(), rect().height()/2),
+    // Instruction text
+    QFont textFont = p.font();
+    textFont.setPointSize(10);
+    p.setFont(textFont);
+    p.setPen(m_dragActive
+        ? QColor(0x20, 0x88, 0xFF)
+        : QColor(0x88, 0x88, 0x88));
+
+    p.drawText(
+        QRect(dropArea.x(), dropArea.height() * 6 / 10,
+              dropArea.width(), dropArea.height() * 4 / 10),
         Qt::AlignHCenter | Qt::AlignTop,
         m_dragActive
-            ? "Release to process image"
-            : "Drop image here  (PNG, JPG, TIFF)"
+            ? "Release to process"
+            : "Drop image here\nor click to browse"
     );
 }
 

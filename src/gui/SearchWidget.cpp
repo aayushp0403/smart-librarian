@@ -6,7 +6,6 @@
 #include <QPushButton>
 #include <QListWidgetItem>
 #include <QFont>
-#include <QTimer>
 #include <sstream>
 #include <iomanip>
 
@@ -17,18 +16,12 @@ SearchWidget::SearchWidget(sl::search::SearchEngine* engine, QWidget* parent)
     : QWidget(parent)
     , m_engine(engine)
 {
-    // ── Build the layout ─────────────────────────────────────────
-    // Qt layout system:
-    //   QVBoxLayout stacks children vertically (top to bottom)
-    //   QHBoxLayout places children horizontally (left to right)
-    //   Layouts automatically handle resize and spacing
-
     auto* mainLayout = new QVBoxLayout(this);
     mainLayout->setSpacing(8);
     mainLayout->setContentsMargins(12, 12, 12, 12);
 
     // Title
-    auto* titleLabel = new QLabel("🔍  Document Search", this);
+    auto* titleLabel = new QLabel("  Document Search", this);
     QFont titleFont = titleLabel->font();
     titleFont.setPointSize(13);
     titleFont.setBold(true);
@@ -39,8 +32,7 @@ SearchWidget::SearchWidget(sl::search::SearchEngine* engine, QWidget* parent)
     auto* inputRow = new QHBoxLayout();
 
     m_queryInput = new QLineEdit(this);
-    m_queryInput->setPlaceholderText(
-        "Type to search indexed documents...");
+    m_queryInput->setPlaceholderText("Type to search indexed documents...");
     m_queryInput->setMinimumHeight(36);
     m_queryInput->setStyleSheet(
         "QLineEdit {"
@@ -65,17 +57,13 @@ SearchWidget::SearchWidget(sl::search::SearchEngine* engine, QWidget* parent)
         "  padding: 4px 16px;"
         "  font-weight: bold;"
         "}"
-        "QPushButton:hover {"
-        "  background-color: #1070EE;"
-        "}"
-        "QPushButton:pressed {"
-        "  background-color: #0060DD;"
-        "}"
+        "QPushButton:hover  { background-color: #1070EE; }"
+        "QPushButton:pressed{ background-color: #0060DD; }"
     );
     inputRow->addWidget(searchBtn);
     mainLayout->addLayout(inputRow);
 
-    // Autocomplete suggestions dropdown (hidden by default)
+    // Autocomplete suggestions (hidden until needed)
     m_suggestions = new QListWidget(this);
     m_suggestions->setMaximumHeight(120);
     m_suggestions->hide();
@@ -85,7 +73,7 @@ SearchWidget::SearchWidget(sl::search::SearchEngine* engine, QWidget* parent)
         "  border-radius: 4px;"
         "  font-size: 11px;"
         "}"
-        "QListWidget::item:hover { background: #E8F4FF; }"
+        "QListWidget::item:hover    { background: #E8F4FF; }"
         "QListWidget::item:selected { background: #2088FF; color: white; }"
     );
     mainLayout->addWidget(m_suggestions);
@@ -104,19 +92,13 @@ SearchWidget::SearchWidget(sl::search::SearchEngine* engine, QWidget* parent)
         "  border-radius: 6px;"
         "  font-size: 11px;"
         "}"
-        "QListWidget::item { padding: 8px; }"
-        "QListWidget::item:hover { background: #F0F7FF; }"
-        "QListWidget::item:selected { background: #2088FF; color: white; }"
+        "QListWidget::item           { padding: 8px; }"
+        "QListWidget::item:hover     { background: #F0F7FF; }"
+        "QListWidget::item:selected  { background: #2088FF; color: white; }"
     );
-    mainLayout->addWidget(m_resultsList, 1); // stretch factor 1 = expand
+    mainLayout->addWidget(m_resultsList, 1);
 
-    // ── Connections ──────────────────────────────────────────────
-    // connect(sender, signal, receiver, slot)
-    //
-    // &QLineEdit::textChanged is the signal — emitted every keystroke
-    // &SearchWidget::onQueryChanged is our slot — runs the search
-    //
-    // Lambda connection for the button (simpler for single-use):
+    // ── Connections ───────────────────────────────────────────────
     connect(m_queryInput, &QLineEdit::textChanged,
             this, &SearchWidget::onQueryChanged);
 
@@ -129,7 +111,6 @@ SearchWidget::SearchWidget(sl::search::SearchEngine* engine, QWidget* parent)
     connect(m_resultsList, &QListWidget::itemDoubleClicked,
             this, &SearchWidget::onResultDoubleClicked);
 
-    // Clicking a suggestion fills the query input
     connect(m_suggestions, &QListWidget::itemClicked,
             [this](QListWidgetItem* item) {
                 m_queryInput->setText(item->text());
@@ -139,36 +120,33 @@ SearchWidget::SearchWidget(sl::search::SearchEngine* engine, QWidget* parent)
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// onQueryChanged — called on every keystroke
-//
-// We don't search on every keystroke — that's wasteful for slow
-// queries. Instead we show autocomplete suggestions (cheap: Trie lookup)
-// and only run the full search on Enter or button click.
+// Slot: called on every keystroke
 // ─────────────────────────────────────────────────────────────────────
 
 void SearchWidget::onQueryChanged(const QString& text)
 {
-    if (text.isEmpty()) {
+    if (text.trimmed().isEmpty()) {
         m_suggestions->hide();
         m_resultsList->clear();
         updateStats();
         return;
     }
 
-    // Show prefix suggestions for the last typed word
-    // Extract last word: "neural net" → prefix = "net"
-    QString prefix = text.split(' ', Qt::SkipEmptyParts).last();
-    showSuggestions(prefix);
+    // Show suggestions for the last typed word
+    QStringList parts = text.split(' ', Qt::SkipEmptyParts);
+    if (!parts.isEmpty()) {
+        showSuggestions(parts.last());
+    }
 }
 
 void SearchWidget::onSearchTriggered()
 {
     m_suggestions->hide();
-    performSearch(m_queryInput->text());
+    performSearch(m_queryInput->text().trimmed());
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// showSuggestions — prefix autocomplete via Trie
+// showSuggestions — Trie prefix lookup
 // ─────────────────────────────────────────────────────────────────────
 
 void SearchWidget::showSuggestions(const QString& prefix)
@@ -179,7 +157,6 @@ void SearchWidget::showSuggestions(const QString& prefix)
     }
 
     auto words = m_engine->prefixSearch(prefix.toStdString(), 6);
-
     if (words.empty()) {
         m_suggestions->hide();
         return;
@@ -193,12 +170,12 @@ void SearchWidget::showSuggestions(const QString& prefix)
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// performSearch — full TF-IDF ranked search
+// performSearch — full TF-IDF search
 // ─────────────────────────────────────────────────────────────────────
 
 void SearchWidget::performSearch(const QString& query)
 {
-    if (!m_engine || query.trimmed().isEmpty()) return;
+    if (!m_engine || query.isEmpty()) return;
 
     m_resultsList->clear();
 
@@ -206,27 +183,25 @@ void SearchWidget::performSearch(const QString& query)
 
     if (results.empty()) {
         auto* item = new QListWidgetItem(
-            "No results found for: \"" + query + "\"");
+            "  No results found for: \"" + query + "\"");
         item->setForeground(QColor(0x99, 0x99, 0x99));
         m_resultsList->addItem(item);
+        updateStats(query, 0);
         return;
     }
 
     for (const auto& result : results) {
-        // Format each result as a rich two-line item
-        std::ostringstream oss;
-        oss << std::fixed << std::setprecision(3) << result.score;
+        std::ostringstream scoreStr;
+        scoreStr << std::fixed << std::setprecision(4) << result.score;
 
-        QString display =
-            QString("📄  %1\n"
-                    "    Score: %2  |  Matched terms: %3  |  %4")
+        QString line = QString("[%1]  %2\n"
+                               "      %3 matched terms | %4")
+            .arg(QString::fromStdString(scoreStr.str()))
             .arg(QString::fromStdString(result.title))
-            .arg(QString::fromStdString(oss.str()))
             .arg(result.matchCount)
             .arg(QString::fromStdString(result.path));
 
-        auto* item = new QListWidgetItem(display);
-        // Store doc info as item data for double-click handler
+        auto* item = new QListWidgetItem(line);
         item->setData(Qt::UserRole,
                       QString::fromStdString(result.path));
         m_resultsList->addItem(item);
@@ -237,17 +212,20 @@ void SearchWidget::performSearch(const QString& query)
 
 void SearchWidget::onResultDoubleClicked(QListWidgetItem* item)
 {
-    // Future: open document in viewer
     QString path = item->data(Qt::UserRole).toString();
     if (!path.isEmpty()) {
-        // For now: show path in status
         m_statsLabel->setText("Selected: " + path);
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// refreshResults / updateStats
+// Single declaration with default params — fixes the vtable link error
+// ─────────────────────────────────────────────────────────────────────
+
 void SearchWidget::refreshResults()
 {
-    QString current = m_queryInput->text();
+    QString current = m_queryInput->text().trimmed();
     if (!current.isEmpty()) {
         performSearch(current);
     }
@@ -260,15 +238,15 @@ void SearchWidget::updateStats(const QString& query, int resultCount)
 
     QString stats;
     if (query.isEmpty()) {
-        stats = QString("Index: %1 documents  |  %2 unique words  |  "
-                        "%3 trie nodes")
+        stats = QString("Index: %1 docs  |  %2 unique words  |  %3 trie nodes")
             .arg(m_engine->documentCount())
             .arg(m_engine->uniqueWordCount())
             .arg(m_engine->trieNodeCount());
     } else {
-        stats = QString("Found %1 results  |  Index: %2 docs  |  "
-                        "%3 unique words")
+        stats = QString("Found %1 result(s) for \"%2\"  |  "
+                        "Index: %3 docs  |  %4 words")
             .arg(resultCount)
+            .arg(query)
             .arg(m_engine->documentCount())
             .arg(m_engine->uniqueWordCount());
     }

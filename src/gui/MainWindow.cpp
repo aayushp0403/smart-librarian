@@ -7,15 +7,17 @@
 #include <QHBoxLayout>
 #include <QSplitter>
 #include <QTabWidget>
-#include <QToolBar>
 #include <QStatusBar>
 #include <QLabel>
 #include <QProgressBar>
+#include <QPushButton>
 #include <QFileInfo>
 #include <QMessageBox>
 #include <QDateTime>
 #include <QFont>
 #include <QApplication>
+#include <QFrame>
+#include <QFileDialog>
 
 namespace sl {
 namespace gui {
@@ -29,47 +31,112 @@ MainWindow::MainWindow(QWidget* parent)
     , m_searchEngine(std::make_unique<sl::search::SearchEngine>())
 {
     setWindowTitle("SmartLibrarian — Intelligent Document Archive");
-    setMinimumSize(900, 650);
-    resize(1100, 720);
+    setMinimumSize(920, 660);
+    resize(1120, 740);
 
-    // Initialize OCR engine (expensive — do in constructor, not on demand)
     try {
         m_ocrEngine = std::make_unique<sl::ocr::OcrEngine>("", "eng");
     }
     catch (const std::exception& ex) {
-        // OCR unavailable — app still works for search/PDF
-        // We'll show a notice in the UI
-        Q_UNUSED(ex);
+        m_ocrInitError = QString::fromStdString(ex.what());
     }
 
     setupUi();
+    seedDemoDocuments();
     setupOcrThread();
 }
 
 // ─────────────────────────────────────────────────────────────────────
 // Destructor
-//
-// Must stop the OCR thread cleanly before destroying the worker.
-//
-// Qt thread shutdown sequence:
-//   1. thread.quit()  — sends a quit event to the thread's event loop
-//   2. thread.wait()  — blocks until the thread has finished
-//
-// If we destroy OcrWorker while the thread is still running,
-// we have a data race — the worker might be mid-OCR when we delete it.
-// Quit + wait ensures the thread is fully stopped before any objects
-// are destroyed. This is the correct Qt thread cleanup pattern.
 // ─────────────────────────────────────────────────────────────────────
 
 MainWindow::~MainWindow()
 {
-    if (m_ocrThread) {
+    if (m_ocrThread && m_ocrThread->isRunning()) {
         m_ocrThread->quit();
-        m_ocrThread->wait(3000);  // 3 second timeout
+        if (!m_ocrThread->wait(5000)) {
+            m_ocrThread->terminate();
+            m_ocrThread->wait();
+        }
     }
-    // m_ocrWorker is owned by the thread via Qt's object tree
-    // (parent = nullptr but deleteLater is called by thread)
-    // m_ocrEngine and m_searchEngine are unique_ptrs — auto-deleted
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// seedDemoDocuments
+// ─────────────────────────────────────────────────────────────────────
+
+void MainWindow::seedDemoDocuments()
+{
+    struct SeedDoc {
+        const char* path;
+        const char* title;
+        const char* content;
+    };
+
+    static const SeedDoc seeds[] = {
+        {
+            "demo/neural_networks.txt",
+            "Introduction to Neural Networks",
+            "Neural networks are computing systems inspired by biological neural "
+            "networks. A neural network consists of interconnected layers of nodes "
+            "called neurons. Deep learning uses many-layered neural networks. "
+            "Backpropagation trains neural networks by computing gradients. "
+            "Convolutional neural networks excel at image recognition tasks."
+        },
+        {
+            "demo/cpp_memory.txt",
+            "C++ Memory Management",
+            "Memory management in C++ involves stack and heap allocation. "
+            "Stack allocation is automatic and very fast. Heap allocation uses "
+            "new and delete operators. Smart pointers manage heap memory safely. "
+            "unique_ptr provides exclusive ownership semantics. shared_ptr uses "
+            "reference counting. RAII ensures resources are released correctly."
+        },
+        {
+            "demo/algorithms.txt",
+            "Algorithm Complexity Analysis",
+            "An algorithm is a sequence of instructions for solving a problem. "
+            "Complexity is measured using Big-O notation. Binary search runs "
+            "in O(log n) time on sorted data structures. Quicksort achieves "
+            "average O(n log n) complexity. Dynamic programming decomposes "
+            "problems into overlapping subproblems for efficiency."
+        },
+        {
+            "demo/data_structures.txt",
+            "Fundamental Data Structures",
+            "Arrays provide O(1) random access with contiguous memory layout. "
+            "Linked lists allow O(1) insertion but O(n) sequential access. "
+            "Hash tables achieve O(1) average lookup using hash functions. "
+            "Binary search trees maintain sorted order with O(log n) operations. "
+            "A trie is a prefix tree optimized for string search operations."
+        },
+        {
+            "demo/pdf_internals.txt",
+            "PDF File Format Internals",
+            "PDF is a binary file format for portable document exchange. "
+            "A PDF contains objects: booleans, integers, strings, arrays, "
+            "dictionaries, and streams. The cross-reference table maps object "
+            "numbers to exact byte offsets enabling random access. Content "
+            "streams use PostScript-like drawing operators for text rendering."
+        },
+        {
+            "demo/ocr_technology.txt",
+            "Optical Character Recognition",
+            "Optical character recognition extracts text from scanned images. "
+            "Tesseract uses a neural network to recognize characters in images. "
+            "Image preprocessing dramatically improves OCR accuracy. Binarization "
+            "converts grayscale images to black and white. Otsu thresholding "
+            "finds the optimal binarization threshold automatically."
+        }
+    };
+
+    for (const auto& seed : seeds) {
+        m_searchEngine->indexDocument(seed.path, seed.title, seed.content);
+    }
+
+    if (m_searchWidget) {
+        m_searchWidget->refreshResults();
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -78,83 +145,132 @@ MainWindow::~MainWindow()
 
 void MainWindow::setupUi()
 {
-    // ── Central widget and outer layout ──────────────────────────
     auto* central = new QWidget(this);
     setCentralWidget(central);
     auto* outerLayout = new QVBoxLayout(central);
     outerLayout->setSpacing(0);
     outerLayout->setContentsMargins(0, 0, 0, 0);
 
-    // ── Toolbar / Header ─────────────────────────────────────────
-    auto* header = new QWidget(this);
-    header->setFixedHeight(54);
+    // ── Header ────────────────────────────────────────────────────
+    auto* header = new QFrame(this);
+    header->setFixedHeight(52);
     header->setStyleSheet(
-        "background: qlineargradient("
-        "  x1:0, y1:0, x2:1, y2:0,"
-        "  stop:0 #0F2E5A, stop:1 #1A4A8A);"
+        "QFrame {"
+        "  background: qlineargradient("
+        "    x1:0, y1:0, x2:1, y2:0,"
+        "    stop:0 #0D2444, stop:1 #1A4A8A);"
+        "  border-bottom: 2px solid #2088FF;"
+        "}"
     );
     auto* headerLayout = new QHBoxLayout(header);
     headerLayout->setContentsMargins(16, 0, 16, 0);
 
-    auto* appTitle = new QLabel("📚  SmartLibrarian", header);
-    QFont titleFont = appTitle->font();
-    titleFont.setPointSize(15);
-    titleFont.setBold(true);
-    appTitle->setFont(titleFont);
-    appTitle->setStyleSheet("color: white;");
+    auto* appTitle = new QLabel("  SmartLibrarian", header);
+    QFont tf = appTitle->font();
+    tf.setPointSize(14);
+    tf.setBold(true);
+    appTitle->setFont(tf);
+    appTitle->setStyleSheet("color: white; background: transparent;");
     headerLayout->addWidget(appTitle);
-
     headerLayout->addStretch();
 
-    m_ocrStatusLabel = new QLabel("OCR: Initializing...", header);
-    m_ocrStatusLabel->setStyleSheet("color: #AAD4FF; font-size: 11px;");
-    headerLayout->addWidget(m_ocrStatusLabel);
-
+    m_ocrStatusLabel = new QLabel(header);
+    m_ocrStatusLabel->setStyleSheet(
+        "background: transparent; font-size: 10px;");
     if (m_ocrEngine && m_ocrEngine->isInitialized()) {
         m_ocrStatusLabel->setText(
-            "OCR: Ready  (Tesseract " +
-            QString::fromStdString(m_ocrEngine->getVersion()) + ")");
-        m_ocrStatusLabel->setStyleSheet("color: #88FF88; font-size: 11px;");
+            "OCR Ready  |  Tesseract " +
+            QString::fromStdString(m_ocrEngine->getVersion()));
+        m_ocrStatusLabel->setStyleSheet(
+            "color: #66FF88; font-size: 10px; background: transparent;");
     } else {
-        m_ocrStatusLabel->setText("OCR: Unavailable");
-        m_ocrStatusLabel->setStyleSheet("color: #FFAA44; font-size: 11px;");
+        m_ocrStatusLabel->setText("OCR Unavailable");
+        m_ocrStatusLabel->setStyleSheet(
+            "color: #FFAA44; font-size: 10px; background: transparent;");
     }
-
+    headerLayout->addWidget(m_ocrStatusLabel);
     outerLayout->addWidget(header);
 
-    // ── Content area: splitter ────────────────────────────────────
-    // QSplitter lets the user drag to resize the two panes.
+    // ── Splitter ──────────────────────────────────────────────────
     auto* splitter = new QSplitter(Qt::Horizontal, central);
-    splitter->setHandleWidth(2);
-    splitter->setStyleSheet("QSplitter::handle { background: #DDD; }");
+    splitter->setHandleWidth(3);
+    splitter->setStyleSheet(
+        "QSplitter::handle { background: #E0E0E0; }"
+        "QSplitter::handle:hover { background: #2088FF; }");
 
-    // ── Left pane: DropZone ───────────────────────────────────────
+    // ── Left pane ─────────────────────────────────────────────────
     auto* leftPane = new QWidget(splitter);
+    leftPane->setMinimumWidth(260);
+    leftPane->setMaximumWidth(380);
+
     auto* leftLayout = new QVBoxLayout(leftPane);
-    leftLayout->setContentsMargins(12, 12, 6, 12);
-    leftLayout->setSpacing(10);
+    leftLayout->setContentsMargins(12, 12, 8, 12);
+    leftLayout->setSpacing(8);
 
-    auto* dropTitle = new QLabel("Process Image", leftPane);
-    QFont dropTitleFont = dropTitle->font();
-    dropTitleFont.setPointSize(12);
-    dropTitleFont.setBold(true);
-    dropTitle->setFont(dropTitleFont);
-    leftLayout->addWidget(dropTitle);
+    // Section label
+    auto* sectionLabel = new QLabel("Process Document", leftPane);
+    QFont sf = sectionLabel->font();
+    sf.setPointSize(11);
+    sf.setBold(true);
+    sectionLabel->setFont(sf);
+    sectionLabel->setStyleSheet("color: #333;");
+    leftLayout->addWidget(sectionLabel);
 
+    // ── PRIMARY: Browse button (large, always visible) ────────────
+    m_mainBrowseBtn = new QPushButton(
+        "   Select Image File...", leftPane);
+    m_mainBrowseBtn->setFixedHeight(44);
+    m_mainBrowseBtn->setCursor(Qt::PointingHandCursor);
+    m_mainBrowseBtn->setStyleSheet(
+        "QPushButton {"
+        "  background: qlineargradient("
+        "    x1:0, y1:0, x2:0, y2:1,"
+        "    stop:0 #2A9AFF, stop:1 #1070DD);"
+        "  color: white;"
+        "  border: none;"
+        "  border-radius: 8px;"
+        "  font-size: 13px;"
+        "  font-weight: bold;"
+        "  text-align: left;"
+        "  padding-left: 14px;"
+        "}"
+        "QPushButton:hover  {"
+        "  background: qlineargradient("
+        "    x1:0, y1:0, x2:0, y2:1,"
+        "    stop:0 #44AAFF, stop:1 #2088EE);"
+        "}"
+        "QPushButton:pressed {"
+        "  background: #0055BB;"
+        "}"
+        "QPushButton:disabled {"
+        "  background: #AAAAAA;"
+        "}"
+    );
+    leftLayout->addWidget(m_mainBrowseBtn);
+
+    // Supported formats hint
+    auto* formatHint = new QLabel(
+        "Supports: PNG  JPG  TIFF  BMP", leftPane);
+    formatHint->setAlignment(Qt::AlignCenter);
+    formatHint->setStyleSheet(
+        "color: #999; font-size: 9px;");
+    leftLayout->addWidget(formatHint);
+
+    // ── SECONDARY: Drop zone (still available) ────────────────────
     m_dropZone = new DropZone(leftPane);
     leftLayout->addWidget(m_dropZone);
 
-    // Processing indicator
+    // ── Progress bar ──────────────────────────────────────────────
     m_progressBar = new QProgressBar(leftPane);
     m_progressBar->setRange(0, 100);
     m_progressBar->setValue(0);
-    m_progressBar->hide();
+    m_progressBar->setVisible(false);
+    m_progressBar->setFixedHeight(16);
+    m_progressBar->setTextVisible(false);
     m_progressBar->setStyleSheet(
         "QProgressBar {"
-        "  border: 1px solid #DDD;"
+        "  border: 1px solid #CCC;"
         "  border-radius: 4px;"
-        "  text-align: center;"
-        "  height: 20px;"
         "}"
         "QProgressBar::chunk {"
         "  background: #2088FF;"
@@ -163,108 +279,131 @@ void MainWindow::setupUi()
     );
     leftLayout->addWidget(m_progressBar);
 
-    m_statusLabel = new QLabel("Drop an image to begin.", leftPane);
+    // ── Status label ──────────────────────────────────────────────
+    m_statusLabel = new QLabel(
+        "Click the button above\nor drop an image here\nto run OCR.",
+        leftPane);
     m_statusLabel->setWordWrap(true);
+    m_statusLabel->setAlignment(Qt::AlignCenter);
+    m_statusLabel->setMinimumHeight(52);
     m_statusLabel->setStyleSheet(
-        "color: #555; font-size: 10px; padding: 4px;");
+        "color: #666;"
+        "font-size: 10px;"
+        "padding: 6px;"
+        "background: #F5F5F5;"
+        "border: 1px solid #E8E8E8;"
+        "border-radius: 4px;"
+    );
     leftLayout->addWidget(m_statusLabel);
+
+    // Separator
+    auto* sep = new QFrame(leftPane);
+    sep->setFrameShape(QFrame::HLine);
+    sep->setStyleSheet("color: #E8E8E8;");
+    leftLayout->addWidget(sep);
+
+    // Stats
+    m_quickStatsLabel = new QLabel(
+        "Demo data loaded: 6 documents\nTry searching in the Search tab.",
+        leftPane);
+    m_quickStatsLabel->setWordWrap(true);
+    m_quickStatsLabel->setStyleSheet(
+        "color: #2088FF; font-size: 10px; padding: 2px;");
+    leftLayout->addWidget(m_quickStatsLabel);
 
     leftLayout->addStretch();
     splitter->addWidget(leftPane);
 
     // ── Right pane: tabs ──────────────────────────────────────────
-    auto* tabs = new QTabWidget(splitter);
+    auto* rightPane = new QWidget(splitter);
+    auto* rightLayout = new QVBoxLayout(rightPane);
+    rightLayout->setContentsMargins(8, 12, 12, 12);
+    rightLayout->setSpacing(0);
+
+    auto* tabs = new QTabWidget(rightPane);
+    tabs->setDocumentMode(true);
     tabs->setStyleSheet(
         "QTabWidget::pane {"
         "  border: 1px solid #DDD;"
-        "  border-radius: 4px;"
+        "  background: white;"
         "}"
         "QTabBar::tab {"
-        "  padding: 8px 20px;"
+        "  padding: 8px 24px;"
+        "  font-size: 11px;"
         "  border: 1px solid #DDD;"
         "  border-bottom: none;"
-        "  border-top-left-radius: 4px;"
-        "  border-top-right-radius: 4px;"
+        "  border-radius: 4px 4px 0 0;"
+        "  margin-right: 2px;"
         "}"
         "QTabBar::tab:selected {"
         "  background: white;"
         "  font-weight: bold;"
+        "  color: #2088FF;"
         "}"
         "QTabBar::tab:!selected {"
-        "  background: #F5F5F5;"
+        "  background: #F0F0F0; color: #666;"
+        "}"
+        "QTabBar::tab:hover:!selected {"
+        "  background: #E8F4FF;"
         "}"
     );
 
-    m_searchWidget = new SearchWidget(m_searchEngine.get(), tabs);
-    tabs->addTab(m_searchWidget, "🔍  Search");
-
+    m_searchWidget  = new SearchWidget(m_searchEngine.get(), tabs);
     m_archiveWidget = new ArchiveWidget(m_searchEngine.get(), tabs);
-    tabs->addTab(m_archiveWidget, "📁  Archive");
+    tabs->addTab(m_searchWidget,  "Search");
+    tabs->addTab(m_archiveWidget, "Archive");
 
-    splitter->addWidget(tabs);
-
-    // Initial splitter ratio: 35% left, 65% right
-    splitter->setSizes({350, 650});
+    rightLayout->addWidget(tabs);
+    splitter->addWidget(rightPane);
+    splitter->setSizes({ 300, 800 });
     outerLayout->addWidget(splitter, 1);
 
     // ── Status bar ────────────────────────────────────────────────
-    statusBar()->showMessage("Ready — drop an image to begin OCR processing");
-    statusBar()->setStyleSheet("font-size: 10px; color: #555;");
+    statusBar()->showMessage(
+        "Ready  |  6 demo documents loaded  |  "
+        "Click 'Select Image File' or drop an image to run OCR");
+    statusBar()->setStyleSheet(
+        "QStatusBar { font-size: 10px; color: #555; "
+        "border-top: 1px solid #DDD; }");
 
-    // ── Connections ───────────────────────────────────────────────
+    // ── Wire signals ──────────────────────────────────────────────
+
+    // Browse button in left pane → open file dialog directly
+    connect(m_mainBrowseBtn, &QPushButton::clicked,
+            m_dropZone, &DropZone::openFileBrowser);
+
+    // DropZone (both button and drop) → onImageDropped
     connect(m_dropZone, &DropZone::imageDropped,
             this, &MainWindow::onImageDropped);
 
+    // Archive status messages → status bar
     connect(m_archiveWidget, &ArchiveWidget::statusMessage,
-            [this](const QString& msg) { statusBar()->showMessage(msg); });
+            [this](const QString& msg) {
+                statusBar()->showMessage(msg);
+            });
 }
 
 // ─────────────────────────────────────────────────────────────────────
 // setupOcrThread
-//
-// Worker-object threading pattern:
-//
-//   1. Create QThread
-//   2. Create OcrWorker (no parent — we'll move it to the thread)
-//   3. moveToThread() — changes worker's thread affinity
-//   4. Connect signals/slots across thread boundary
-//   5. thread.start() — starts the thread's event loop
-//
-// Important: OcrWorker is NOT moved to the thread in its constructor.
-// It's moved AFTER construction. This is the correct pattern because
-// constructors run on the creating thread.
-//
-// Cross-thread signals are automatically queued by Qt:
-//   - main thread emits → worker thread receives (queued)
-//   - worker thread emits → main thread receives (queued, safe for widgets)
 // ─────────────────────────────────────────────────────────────────────
 
 void MainWindow::setupOcrThread()
 {
     m_ocrThread = new QThread(this);
-
-    // OcrWorker takes the engine as a borrowed pointer.
-    // The engine is owned by MainWindow (m_ocrEngine unique_ptr).
-    // OcrWorker's parent is nullptr — we give thread ownership
-    // via moveToThread, not Qt's object parent system.
     m_ocrWorker = new OcrWorker(m_ocrEngine.get());
     m_ocrWorker->moveToThread(m_ocrThread);
 
-    // When the worker's process() slot is triggered by a signal
-    // from the main thread, Qt queues the call to run on m_ocrThread.
-    connect(this, &MainWindow::startOcrProcessing,
+    connect(this,        &MainWindow::startOcrProcessing,
             m_ocrWorker, &OcrWorker::process,
             Qt::QueuedConnection);
 
-    // Results come back to main thread automatically (Qt queues them)
     connect(m_ocrWorker, &OcrWorker::progressUpdated,
-            this, &MainWindow::onOcrProgress);
+            this,        &MainWindow::onOcrProgress);
     connect(m_ocrWorker, &OcrWorker::ocrCompleted,
-            this, &MainWindow::onOcrCompleted);
+            this,        &MainWindow::onOcrCompleted);
     connect(m_ocrWorker, &OcrWorker::ocrFailed,
-            this, &MainWindow::onOcrFailed);
+            this,        &MainWindow::onOcrFailed);
 
-    // Clean up worker when thread finishes
     connect(m_ocrThread, &QThread::finished,
             m_ocrWorker, &QObject::deleteLater);
 
@@ -272,35 +411,45 @@ void MainWindow::setupOcrThread()
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Slots
+// onImageDropped
 // ─────────────────────────────────────────────────────────────────────
 
 void MainWindow::onImageDropped(const QString& filePath)
 {
     if (!m_ocrEngine || !m_ocrEngine->isInitialized()) {
-        QMessageBox::warning(this, "OCR Unavailable",
-            "Tesseract OCR is not initialized.\n"
-            "Install: sudo apt install tesseract-ocr tesseract-ocr-eng\n"
-            "Then restart the application.");
+        QMessageBox::warning(this, "OCR Not Available",
+            "Tesseract OCR is not initialized.\n\n"
+            "Install with:\n"
+            "  sudo apt install tesseract-ocr tesseract-ocr-eng\n\n"
+            "Then restart SmartLibrarian.");
         return;
     }
 
     setProcessingState(true);
-    updateStatusBar("Processing: " + filePath);
 
-    // Emit signal to trigger OcrWorker::process() on the OCR thread
-    // This is a cross-thread signal — Qt automatically queues it
+    QFileInfo fi(filePath);
+    m_statusLabel->setText(
+        "Processing:\n" + fi.fileName());
+    statusBar()->showMessage("OCR running on: " + fi.fileName());
+
     emit startOcrProcessing(filePath);
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// onOcrProgress
+// ─────────────────────────────────────────────────────────────────────
+
 void MainWindow::onOcrProgress(int percent, const QString& stage)
 {
-    // This runs on the main thread (Qt queued the signal)
-    // Safe to update widgets here
     m_progressBar->setValue(percent);
     m_statusLabel->setText(stage);
     statusBar()->showMessage(stage);
+    QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// onOcrCompleted
+// ─────────────────────────────────────────────────────────────────────
 
 void MainWindow::onOcrCompleted(
     const QString& imagePath,
@@ -311,7 +460,7 @@ void MainWindow::onOcrCompleted(
     setProcessingState(false);
 
     QFileInfo fi(imagePath);
-    std::string filename = fi.fileName().toStdString();
+    const std::string filename = fi.fileName().toStdString();
 
     // Index in search engine
     m_searchEngine->indexDocument(
@@ -335,16 +484,28 @@ void MainWindow::onOcrCompleted(
     m_archiveWidget->addDocument(adoc);
     m_searchWidget->refreshResults();
 
-    QString msg = QString("✓ Indexed: %1  |  %2 words  |  "
-                          "Confidence: %3%")
+    m_quickStatsLabel->setText(
+        QString("Index: %1 docs  |  %2 unique words")
+            .arg(m_searchEngine->documentCount())
+            .arg(m_searchEngine->uniqueWordCount()));
+
+    QString summary = QString(
+        "Done: %1\n%2 words extracted\nConfidence: %3%")
         .arg(fi.fileName())
         .arg(wordCount)
         .arg(static_cast<double>(confidence), 0, 'f', 1);
+    m_statusLabel->setText(summary);
 
-    updateStatusBar(msg);
-    m_statusLabel->setText(msg);
-    statusBar()->showMessage(msg);
+    statusBar()->showMessage(
+        QString("Indexed: %1  |  %2 words  |  Confidence: %3%")
+            .arg(fi.fileName())
+            .arg(wordCount)
+            .arg(static_cast<double>(confidence), 0, 'f', 1));
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// onOcrFailed
+// ─────────────────────────────────────────────────────────────────────
 
 void MainWindow::onOcrFailed(
     const QString& imagePath,
@@ -352,32 +513,44 @@ void MainWindow::onOcrFailed(
 {
     setProcessingState(false);
 
-    QString msg = "✗ OCR failed: " + errorMessage;
-    updateStatusBar(msg);
-    m_statusLabel->setText(msg);
+    QFileInfo fi(imagePath);
+    m_statusLabel->setText("Failed: " + fi.fileName() +
+                           "\n\n" + errorMessage);
     m_statusLabel->setStyleSheet(
-        "color: #DD2222; font-size: 10px; padding: 4px;");
+        "color: #AA0000; font-size: 10px; padding: 6px;"
+        "background: #FFF0F0; border-radius: 4px;"
+        "border: 1px solid #FFCCCC;");
 
+    statusBar()->showMessage("OCR failed: " + fi.fileName());
     QMessageBox::warning(this, "OCR Failed",
-        "Failed to process: " + imagePath + "\n\n" + errorMessage);
+        "Could not process: " + fi.fileName() +
+        "\n\n" + errorMessage);
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Helpers
+// setProcessingState
 // ─────────────────────────────────────────────────────────────────────
 
 void MainWindow::setProcessingState(bool processing)
 {
     m_dropZone->setEnabled(!processing);
+    m_mainBrowseBtn->setEnabled(!processing);
     m_progressBar->setVisible(processing);
-    if (!processing) {
-        m_progressBar->setValue(0);
-    }
-}
 
-void MainWindow::updateStatusBar(const QString& message)
-{
-    statusBar()->showMessage(message);
+    if (processing) {
+        m_progressBar->setValue(0);
+        m_mainBrowseBtn->setText("   Processing...");
+        m_statusLabel->setStyleSheet(
+            "color: #0055AA; font-size: 10px; padding: 6px;"
+            "background: #EEF6FF; border-radius: 4px;"
+            "border: 1px solid #CCE4FF;");
+    } else {
+        m_mainBrowseBtn->setText("   Select Image File...");
+        m_statusLabel->setStyleSheet(
+            "color: #555; font-size: 10px; padding: 6px;"
+            "background: #F5F5F5; border-radius: 4px;"
+            "border: 1px solid #E8E8E8;");
+    }
 }
 
 } // namespace gui

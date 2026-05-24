@@ -7,6 +7,7 @@
 #include <QMainWindow>
 #include <QProgressBar>
 #include <QLabel>
+#include <QPushButton>
 #include <QThread>
 #include <memory>
 
@@ -28,7 +29,6 @@ public:
     ~MainWindow() override;
 
 signals:
-    // Emitted to trigger OCR processing on the worker thread
     void startOcrProcessing(const QString& imagePath);
 
 private slots:
@@ -44,21 +44,24 @@ private slots:
 private:
     void setupUi();
     void setupOcrThread();
+    void seedDemoDocuments();
     void setProcessingState(bool processing);
-    void updateStatusBar(const QString& message);
 
     std::unique_ptr<sl::ocr::OcrEngine>       m_ocrEngine;
     std::unique_ptr<sl::search::SearchEngine> m_searchEngine;
+    QString                                   m_ocrInitError;
 
-    QThread*   m_ocrThread   { nullptr };
-    OcrWorker* m_ocrWorker   { nullptr };
+    QThread*   m_ocrThread { nullptr };
+    OcrWorker* m_ocrWorker { nullptr };
 
-    DropZone*      m_dropZone      { nullptr };
-    SearchWidget*  m_searchWidget  { nullptr };
-    ArchiveWidget* m_archiveWidget { nullptr };
-    QProgressBar*  m_progressBar   { nullptr };
-    QLabel*        m_statusLabel   { nullptr };
-    QLabel*        m_ocrStatusLabel{ nullptr };
+    DropZone*      m_dropZone        { nullptr };
+    SearchWidget*  m_searchWidget    { nullptr };
+    ArchiveWidget* m_archiveWidget   { nullptr };
+    QProgressBar*  m_progressBar     { nullptr };
+    QLabel*        m_statusLabel     { nullptr };
+    QLabel*        m_ocrStatusLabel  { nullptr };
+    QLabel*        m_quickStatsLabel { nullptr };
+    QPushButton*   m_mainBrowseBtn   { nullptr };  // ← new
 
     int m_nextDocId { 1 };
 };

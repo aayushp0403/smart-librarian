@@ -1,12 +1,19 @@
-# Qt6 is found at the root CMakeLists level
-# Components are already found — just reference them here
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui)
 
 add_library(sl_gui STATIC
-    ${PROJECT_SOURCE_DIR}/include/gui/OcrWorker.h OcrWorker.cpp
-    ${PROJECT_SOURCE_DIR}/include/gui/DropZone.h DropZone.cpp
-    ${PROJECT_SOURCE_DIR}/include/gui/SearchWidget.h SearchWidget.cpp
-    ${PROJECT_SOURCE_DIR}/include/gui/ArchiveWidget.h ArchiveWidget.cpp
-    ${PROJECT_SOURCE_DIR}/include/gui/MainWindow.h MainWindow.cpp
+    # Source files
+    OcrWorker.cpp
+    DropZone.cpp
+    SearchWidget.cpp
+    ArchiveWidget.cpp
+    MainWindow.cpp
+
+    # Headers listed explicitly so AUTOMOC finds Q_OBJECT classes
+    ${PROJECT_SOURCE_DIR}/include/gui/OcrWorker.h
+    ${PROJECT_SOURCE_DIR}/include/gui/DropZone.h
+    ${PROJECT_SOURCE_DIR}/include/gui/SearchWidget.h
+    ${PROJECT_SOURCE_DIR}/include/gui/ArchiveWidget.h
+    ${PROJECT_SOURCE_DIR}/include/gui/MainWindow.h
 )
 
 target_include_directories(sl_gui PUBLIC

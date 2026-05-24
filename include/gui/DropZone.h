@@ -2,7 +2,7 @@
 
 #include <QWidget>
 #include <QString>
-#include <QStringList>
+#include <QPushButton>
 
 namespace sl {
 namespace gui {
@@ -10,32 +10,17 @@ namespace gui {
 /**
  * DropZone
  *
- * A widget that accepts dragged image files and emits a signal
- * when files are dropped onto it.
+ * Accepts image files via two methods:
+ *   1. Drag and drop (works when running with a real X11 session
+ *      where cross-process DnD is available)
+ *   2. Browse button — opens QFileDialog (always works, including WSL2)
  *
- * Qt drag-and-drop requires overriding two event handlers:
+ * The browse button is the primary interaction path for WSL2 users
+ * because Windows→WSL2 drag-and-drop requires special X11 bridge
+ * configuration that most users don't have set up.
  *
- *   dragEnterEvent(QDragEnterEvent*)
- *     Called when the user drags something OVER the widget.
- *     We inspect the MIME data to check if it contains file URLs.
- *     If yes, call event->acceptProposedAction() to signal
- *     "I can accept this drop."
- *     If no, ignore the event — the OS will show a "not allowed" cursor.
- *
- *   dropEvent(QDropEvent*)
- *     Called when the user RELEASES the drag over the widget.
- *     We extract the file URLs, filter for supported image types,
- *     and emit the imageDropped signal.
- *
- * Visual feedback:
- *   We override paintEvent to draw a dashed border and instruction
- *   text. We track m_dragActive to change appearance when something
- *   is being dragged over the widget — live visual feedback.
- *
- * Why override QWidget instead of using a QLabel?
- *   QLabel doesn't accept drops by default and doesn't give us
- *   paintEvent control for the custom dashed border styling.
- *   A clean QWidget override gives us full control.
+ * Both paths emit the same imageDropped(QString) signal so
+ * MainWindow doesn't need to know which method was used.
  */
 class DropZone : public QWidget
 {
@@ -48,21 +33,26 @@ public:
     QSize sizeHint() const override;
 
 signals:
-    /**
-     * imageDropped — emitted once per dropped image file.
-     * @param filePath  absolute path to the dropped image
-     */
     void imageDropped(const QString& filePath);
 
+public slots:
+    /**
+     * openFileBrowser — show QFileDialog and emit imageDropped
+     * for each selected file.
+     * Can be called externally (e.g., from a toolbar button).
+     */
+    void openFileBrowser();
+
 protected:
-    // Qt event overrides
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dragLeaveEvent(QDragLeaveEvent* event) override;
     void dropEvent(QDropEvent* event)           override;
     void paintEvent(QPaintEvent* event)         override;
+    void mousePressEvent(QMouseEvent* event)    override;
 
 private:
-    bool m_dragActive { false }; // true when drag is hovering over us
+    bool         m_dragActive  { false };
+    QPushButton* m_browseBtn   { nullptr };
 };
 
 } // namespace gui

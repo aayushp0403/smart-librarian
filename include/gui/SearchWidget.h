@@ -4,6 +4,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QLabel>
+#include <QString>
 
 namespace sl { namespace search { class SearchEngine; } }
 
@@ -19,6 +20,10 @@ public:
                           QWidget* parent = nullptr);
     ~SearchWidget() override = default;
 
+    /**
+     * refreshResults — re-run last query after new documents
+     * are indexed so results update automatically.
+     */
     void refreshResults();
 
 private slots:
@@ -29,13 +34,11 @@ private slots:
 private:
     void performSearch(const QString& query);
     void showSuggestions(const QString& prefix);
-
-    // Single declaration with default parameters — avoids overload
-    // ambiguity that causes vtable/staticMetaObject linker errors
     void updateStats(const QString& query = QString(),
                      int resultCount = 0);
 
-    sl::search::SearchEngine* m_engine { nullptr };
+    sl::search::SearchEngine* m_engine     { nullptr };
+    QString                   m_lastQuery;   // re-run on refreshResults()
 
     QLineEdit*   m_queryInput  { nullptr };
     QListWidget* m_resultsList { nullptr };

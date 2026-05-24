@@ -6,121 +6,132 @@
 #include <QPushButton>
 #include <QListWidgetItem>
 #include <QFont>
+#include <QFileInfo>
 #include <sstream>
 #include <iomanip>
 
 namespace sl {
 namespace gui {
 
-SearchWidget::SearchWidget(sl::search::SearchEngine* engine, QWidget* parent)
+SearchWidget::SearchWidget(sl::search::SearchEngine* engine,
+                           QWidget* parent)
     : QWidget(parent)
     , m_engine(engine)
 {
-    auto* mainLayout = new QVBoxLayout(this);
-    mainLayout->setSpacing(8);
-    mainLayout->setContentsMargins(12, 12, 12, 12);
+    auto* layout = new QVBoxLayout(this);
+    layout->setSpacing(8);
+    layout->setContentsMargins(14, 14, 14, 14);
 
-    // Title
-    auto* titleLabel = new QLabel("  Document Search", this);
-    QFont titleFont = titleLabel->font();
-    titleFont.setPointSize(13);
-    titleFont.setBold(true);
-    titleLabel->setFont(titleFont);
-    mainLayout->addWidget(titleLabel);
+    // ── Title ─────────────────────────────────────────────────────
+    auto* title = new QLabel("Document Search", this);
+    QFont tf = title->font();
+    tf.setPointSize(13);
+    tf.setBold(true);
+    title->setFont(tf);
+    title->setStyleSheet("color: #222;");
+    layout->addWidget(title);
 
-    // Query input row
-    auto* inputRow = new QHBoxLayout();
+    // ── Query row ─────────────────────────────────────────────────
+    auto* row = new QHBoxLayout();
 
     m_queryInput = new QLineEdit(this);
-    m_queryInput->setPlaceholderText("Type to search indexed documents...");
-    m_queryInput->setMinimumHeight(36);
+    m_queryInput->setPlaceholderText(
+        "Search indexed documents...");
+    m_queryInput->setMinimumHeight(38);
     m_queryInput->setStyleSheet(
         "QLineEdit {"
         "  border: 1px solid #CCC;"
         "  border-radius: 6px;"
-        "  padding: 4px 10px;"
+        "  padding: 4px 12px;"
         "  font-size: 12px;"
         "}"
-        "QLineEdit:focus {"
-        "  border: 2px solid #2088FF;"
-        "}"
+        "QLineEdit:focus { border: 2px solid #2088FF; }"
     );
-    inputRow->addWidget(m_queryInput);
+    row->addWidget(m_queryInput, 1);
 
-    auto* searchBtn = new QPushButton("Search", this);
-    searchBtn->setMinimumHeight(36);
-    searchBtn->setStyleSheet(
+    auto* btn = new QPushButton("Search", this);
+    btn->setMinimumHeight(38);
+    btn->setStyleSheet(
         "QPushButton {"
-        "  background-color: #2088FF;"
-        "  color: white;"
-        "  border-radius: 6px;"
-        "  padding: 4px 16px;"
-        "  font-weight: bold;"
+        "  background: #2088FF; color: white;"
+        "  border-radius: 6px; padding: 0 18px;"
+        "  font-weight: bold; font-size: 12px;"
         "}"
-        "QPushButton:hover  { background-color: #1070EE; }"
-        "QPushButton:pressed{ background-color: #0060DD; }"
+        "QPushButton:hover  { background: #1070EE; }"
+        "QPushButton:pressed{ background: #0055CC; }"
     );
-    inputRow->addWidget(searchBtn);
-    mainLayout->addLayout(inputRow);
+    row->addWidget(btn);
+    layout->addLayout(row);
 
-    // Autocomplete suggestions (hidden until needed)
+    // ── Autocomplete suggestions ──────────────────────────────────
     m_suggestions = new QListWidget(this);
-    m_suggestions->setMaximumHeight(120);
+    m_suggestions->setMaximumHeight(110);
     m_suggestions->hide();
     m_suggestions->setStyleSheet(
         "QListWidget {"
         "  border: 1px solid #2088FF;"
-        "  border-radius: 4px;"
-        "  font-size: 11px;"
+        "  border-radius: 4px; font-size: 11px;"
         "}"
+        "QListWidget::item { padding: 4px 10px; }"
         "QListWidget::item:hover    { background: #E8F4FF; }"
         "QListWidget::item:selected { background: #2088FF; color: white; }"
     );
-    mainLayout->addWidget(m_suggestions);
+    layout->addWidget(m_suggestions);
 
-    // Stats label
+    // ── Stats bar ─────────────────────────────────────────────────
     m_statsLabel = new QLabel("No documents indexed yet.", this);
-    m_statsLabel->setStyleSheet("color: #888; font-size: 10px;");
-    mainLayout->addWidget(m_statsLabel);
+    m_statsLabel->setStyleSheet(
+        "color: #888; font-size: 10px; padding: 2px 0;");
+    layout->addWidget(m_statsLabel);
 
-    // Results list
+    // ── Results list ──────────────────────────────────────────────
     m_resultsList = new QListWidget(this);
-    m_resultsList->setAlternatingRowColors(true);
+    m_resultsList->setSpacing(2);
+    m_resultsList->setAlternatingRowColors(false);
     m_resultsList->setStyleSheet(
         "QListWidget {"
         "  border: 1px solid #DDD;"
         "  border-radius: 6px;"
-        "  font-size: 11px;"
+        "  background: white;"
+        "  outline: none;"
         "}"
-        "QListWidget::item           { padding: 8px; }"
-        "QListWidget::item:hover     { background: #F0F7FF; }"
-        "QListWidget::item:selected  { background: #2088FF; color: white; }"
+        "QListWidget::item {"
+        "  border-bottom: 1px solid #F0F0F0;"
+        "  padding: 6px 8px;"
+        "}"
+        "QListWidget::item:hover {"
+        "  background: #F5F9FF;"
+        "}"
+        "QListWidget::item:selected {"
+        "  background: #E8F2FF;"
+        "  color: #000;"
+        "  border-left: 3px solid #2088FF;"
+        "}"
     );
-    mainLayout->addWidget(m_resultsList, 1);
+    layout->addWidget(m_resultsList, 1);
 
     // ── Connections ───────────────────────────────────────────────
     connect(m_queryInput, &QLineEdit::textChanged,
             this, &SearchWidget::onQueryChanged);
-
     connect(m_queryInput, &QLineEdit::returnPressed,
             this, &SearchWidget::onSearchTriggered);
-
-    connect(searchBtn, &QPushButton::clicked,
+    connect(btn, &QPushButton::clicked,
             this, &SearchWidget::onSearchTriggered);
-
     connect(m_resultsList, &QListWidget::itemDoubleClicked,
             this, &SearchWidget::onResultDoubleClicked);
-
     connect(m_suggestions, &QListWidget::itemClicked,
             [this](QListWidgetItem* item) {
                 m_queryInput->setText(item->text());
                 m_suggestions->hide();
                 onSearchTriggered();
             });
+
+    // Show initial stats
+    updateStats();
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Slot: called on every keystroke
+// onQueryChanged — live autocomplete on every keystroke
 // ─────────────────────────────────────────────────────────────────────
 
 void SearchWidget::onQueryChanged(const QString& text)
@@ -132,7 +143,7 @@ void SearchWidget::onQueryChanged(const QString& text)
         return;
     }
 
-    // Show suggestions for the last typed word
+    // Autocomplete for the last word being typed
     QStringList parts = text.split(' ', Qt::SkipEmptyParts);
     if (!parts.isEmpty()) {
         showSuggestions(parts.last());
@@ -146,7 +157,7 @@ void SearchWidget::onSearchTriggered()
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// showSuggestions — Trie prefix lookup
+// showSuggestions
 // ─────────────────────────────────────────────────────────────────────
 
 void SearchWidget::showSuggestions(const QString& prefix)
@@ -156,21 +167,31 @@ void SearchWidget::showSuggestions(const QString& prefix)
         return;
     }
 
-    auto words = m_engine->prefixSearch(prefix.toStdString(), 6);
+    auto words = m_engine->prefixSearch(prefix.toStdString(), 7);
     if (words.empty()) {
         m_suggestions->hide();
         return;
     }
 
     m_suggestions->clear();
-    for (const auto& word : words) {
-        m_suggestions->addItem(QString::fromStdString(word));
+    for (const auto& w : words) {
+        m_suggestions->addItem(QString::fromStdString(w));
     }
     m_suggestions->show();
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// performSearch — full TF-IDF search
+// performSearch — the main display logic
+//
+// Each result item shows four pieces of information:
+//   Line 1: rank number + document title
+//   Line 2: relevance score bar + occurrence count + filename
+//
+// The "relevance bar" is built from Unicode block characters
+// (█) scaled to the score. This gives instant visual ranking
+// without needing a chart widget.
+//
+// We normalize scores so the top result always shows a full bar.
 // ─────────────────────────────────────────────────────────────────────
 
 void SearchWidget::performSearch(const QString& query)
@@ -178,32 +199,94 @@ void SearchWidget::performSearch(const QString& query)
     if (!m_engine || query.isEmpty()) return;
 
     m_resultsList->clear();
+    m_lastQuery = query;
 
     auto results = m_engine->search(query.toStdString(), 20);
 
     if (results.empty()) {
-        auto* item = new QListWidgetItem(
-            "  No results found for: \"" + query + "\"");
+        auto* item = new QListWidgetItem();
+        item->setText(
+            "  No results found for: \"" + query + "\"\n"
+            "  Try a different word or check the Search tab after "
+            "indexing an image.");
         item->setForeground(QColor(0x99, 0x99, 0x99));
+        item->setFlags(item->flags() & ~Qt::ItemIsSelectable);
         m_resultsList->addItem(item);
         updateStats(query, 0);
         return;
     }
 
-    for (const auto& result : results) {
-        std::ostringstream scoreStr;
-        scoreStr << std::fixed << std::setprecision(4) << result.score;
+    // Find max score for normalization (top result = full bar)
+    double maxScore = results.front().score;
 
-        QString line = QString("[%1]  %2\n"
-                               "      %3 matched terms | %4")
-            .arg(QString::fromStdString(scoreStr.str()))
-            .arg(QString::fromStdString(result.title))
-            .arg(result.matchCount)
-            .arg(QString::fromStdString(result.path));
+    for (std::size_t i = 0; i < results.size(); ++i) {
+        const auto& r = results[i];
+
+        // ── Relevance bar ─────────────────────────────────────────
+        // Normalize to 0-10 blocks
+        int barLen = (maxScore > 0.0)
+            ? static_cast<int>((r.score / maxScore) * 10.0)
+            : 0;
+        barLen = std::max(1, std::min(barLen, 10));
+
+        QString bar;
+        for (int b = 0; b < barLen; ++b)      bar += "█";
+        for (int b = barLen; b < 10; ++b)     bar += "░";
+
+        // ── Occurrence description ────────────────────────────────
+        // totalTermFreq: total times matched terms appear in this doc
+        // matchCount:    how many distinct query terms matched
+        QString occurrenceStr;
+        if (r.totalTermFreq == 1) {
+            occurrenceStr = "appears 1 time";
+        } else {
+            occurrenceStr = QString("appears %1 times")
+                .arg(r.totalTermFreq);
+        }
+
+        if (r.matchCount > 1) {
+            occurrenceStr += QString("  (%1 query terms matched)")
+                .arg(r.matchCount);
+        }
+
+        // ── Filename (shorter than full path) ─────────────────────
+        QString displayPath = QString::fromStdString(r.path);
+        QFileInfo fi(displayPath);
+        QString shortName = fi.fileName().isEmpty()
+            ? displayPath
+            : fi.fileName();
+
+        // ── Score formatted ───────────────────────────────────────
+        std::ostringstream scoreStr;
+        scoreStr << std::fixed << std::setprecision(4) << r.score;
+
+        // ── Assemble two-line item text ───────────────────────────
+        QString line = QString(
+            "%1. %2\n"
+            "     %3  |  %4  |  score: %5")
+            .arg(i + 1)
+            .arg(QString::fromStdString(r.title))
+            .arg(bar)
+            .arg(occurrenceStr)
+            .arg(QString::fromStdString(scoreStr.str()));
 
         auto* item = new QListWidgetItem(line);
+
+        // Store path for double-click
         item->setData(Qt::UserRole,
-                      QString::fromStdString(result.path));
+                      QString::fromStdString(r.path));
+
+        // Color the rank number slightly
+        if (i == 0) {
+            // Top result: slightly highlighted
+            item->setBackground(QColor(0xF0, 0xF7, 0xFF));
+        }
+
+        // Font: slightly larger for the title line
+        QFont itemFont = item->font();
+        itemFont.setPointSize(10);
+        item->setFont(itemFont);
+
         m_resultsList->addItem(item);
     }
 
@@ -220,16 +303,16 @@ void SearchWidget::onResultDoubleClicked(QListWidgetItem* item)
 
 // ─────────────────────────────────────────────────────────────────────
 // refreshResults / updateStats
-// Single declaration with default params — fixes the vtable link error
 // ─────────────────────────────────────────────────────────────────────
 
 void SearchWidget::refreshResults()
 {
-    QString current = m_queryInput->text().trimmed();
-    if (!current.isEmpty()) {
-        performSearch(current);
+    // Re-run the last query so new documents show up immediately
+    if (!m_lastQuery.isEmpty()) {
+        performSearch(m_lastQuery);
     }
-    updateStats();
+    updateStats(m_lastQuery,
+                m_resultsList->count());
 }
 
 void SearchWidget::updateStats(const QString& query, int resultCount)
@@ -238,13 +321,15 @@ void SearchWidget::updateStats(const QString& query, int resultCount)
 
     QString stats;
     if (query.isEmpty()) {
-        stats = QString("Index: %1 docs  |  %2 unique words  |  %3 trie nodes")
+        stats = QString(
+            "Index: %1 documents  |  %2 unique words  |  %3 trie nodes")
             .arg(m_engine->documentCount())
             .arg(m_engine->uniqueWordCount())
             .arg(m_engine->trieNodeCount());
     } else {
-        stats = QString("Found %1 result(s) for \"%2\"  |  "
-                        "Index: %3 docs  |  %4 words")
+        stats = QString(
+            "%1 result(s) for \"%2\"  |  "
+            "Index: %3 docs  |  %4 unique words")
             .arg(resultCount)
             .arg(query)
             .arg(m_engine->documentCount())

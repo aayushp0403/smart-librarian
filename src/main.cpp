@@ -1,238 +1,280 @@
 /**
- * SmartLibrarian — Phase 2 Entry Point
+ * SmartLibrarian — Phase 3 Entry Point
  *
  * Demonstrates:
  *   Phase 1: Custom PDF engine
- *   Phase 2: Search engine (Trie + Inverted Index + TF-IDF)
+ *   Phase 2: Search engine
+ *   Phase 3: OCR pipeline (Tesseract + preprocessing)
+ *
+ * Full pipeline:
+ *   Image file → OcrEngine → text → SearchEngine → indexed
+ *   Query → SearchEngine → ranked results → PDF report
  */
 
 #include <iostream>
 #include <iomanip>
+#include <string>
+#include <vector>
+
 #include "core/Application.h"
 #include "pdf/PdfDocument.h"
 #include "search/SearchEngine.h"
+#include "ocr/OcrEngine.h"
+#include "ocr/ImageLoader.h"
 #include "utils/Logger.h"
 
-// ─────────────────────────────────────────────────────────────────
-// Sample documents — simulating OCR output from scanned pages
-// ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
+// Helper: print OCR result summary
+// ─────────────────────────────────────────────────────────────────────
 
-static const struct { const char* path; const char* title; const char* content; }
-k_sampleDocs[] = {
-    {
-        "docs/neural_networks.txt",
-        "Introduction to Neural Networks",
-        "Neural networks are computing systems inspired by biological neural networks "
-        "that constitute animal brains. A neural network consists of layers of "
-        "interconnected nodes or neurons. Deep learning uses neural networks with "
-        "many layers. Backpropagation trains neural networks by computing gradients. "
-        "Convolutional neural networks excel at image recognition tasks. "
-        "Recurrent neural networks process sequential data like text and speech."
-    },
-    {
-        "docs/algorithms.txt",
-        "Algorithm Design and Complexity",
-        "An algorithm is a finite sequence of instructions for solving a problem. "
-        "Algorithm complexity is measured using Big-O notation. Binary search runs "
-        "in O(log n) time on sorted arrays. Quicksort has average O(n log n) "
-        "complexity but worst-case O(n squared). Dynamic programming solves "
-        "problems by breaking them into overlapping subproblems. Graph algorithms "
-        "like Dijkstra find shortest paths in weighted graphs."
-    },
-    {
-        "docs/memory_management.txt",
-        "C++ Memory Management",
-        "Memory management in C++ involves stack and heap allocation. Stack "
-        "allocation is automatic and fast. Heap allocation uses new and delete "
-        "operators. Smart pointers manage heap memory automatically. unique_ptr "
-        "provides exclusive ownership semantics. shared_ptr uses reference counting "
-        "for shared ownership. RAII ensures resources are released when objects "
-        "go out of scope. Memory leaks occur when heap memory is never freed."
-    },
-    {
-        "docs/data_structures.txt",
-        "Fundamental Data Structures",
-        "Data structures organize data for efficient access and modification. "
-        "Arrays provide O(1) random access with contiguous memory layout. "
-        "Linked lists allow O(1) insertion but O(n) access. Hash tables provide "
-        "O(1) average lookup using hash functions. Binary search trees maintain "
-        "sorted order with O(log n) operations. Heaps implement priority queues "
-        "efficiently. Graphs represent relationships between entities. "
-        "A trie is a tree structure optimized for string prefix operations."
-    },
-    {
-        "docs/pdf_internals.txt",
-        "PDF File Format Internals",
-        "PDF is a binary file format for document exchange. A PDF file contains "
-        "objects: booleans, integers, strings, names, arrays, dictionaries, "
-        "and streams. The cross-reference table maps object numbers to byte "
-        "offsets for random access. Content streams contain PostScript-like "
-        "drawing operators. Text rendering uses font resources and coordinate "
-        "transformations. PDF readers parse the trailer to find the catalog "
-        "object which is the document root."
+static void printOcrResult(const sl::ocr::OcrResult& result,
+                            const std::string& source)
+{
+    std::cout << "\n── OCR Result: " << source << " ──────────────────\n";
+    if (!result.success) {
+        std::cout << "  FAILED: " << result.errorMessage << "\n";
+        return;
     }
-};
 
-static constexpr int k_docCount = 5;
+    std::cout << "  Words recognized : " << result.words.size()     << "\n";
+    std::cout << "  Avg confidence   : " << std::fixed
+              << std::setprecision(1) << result.averageConfidence    << "%\n";
+    std::cout << "  Text preview     : "
+              << result.fullText.substr(0,
+                     std::min(result.fullText.size(), std::size_t(120)))
+              << "...\n";
+}
 
-// ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
 // Helper: print search results
-// ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
 
 static void printResults(
     const std::vector<sl::search::SearchResult>& results,
-    std::string_view query
-)
+    const std::string& query)
 {
-    std::cout << "\n┌─────────────────────────────────────────────────────┐\n";
-    std::cout << "│ Query: \"" << query << "\"\n";
-    std::cout << "│ Results: " << results.size() << "\n";
-    std::cout << "├─────────────────────────────────────────────────────┤\n";
-
+    std::cout << "\n  Query: \"" << query << "\"\n";
     if (results.empty()) {
-        std::cout << "│  No results found.\n";
+        std::cout << "  No results.\n";
+        return;
     }
-
     for (std::size_t i = 0; i < results.size(); ++i) {
-        const auto& r = results[i];
-        std::cout << "│ " << std::setw(2) << (i + 1) << ". "
-                  << r.title << "\n";
-        std::cout << "│     Score: " << std::fixed << std::setprecision(4)
-                  << r.score
-                  << "  Matched terms: " << r.matchCount << "\n";
-        std::cout << "│     Path: " << r.path << "\n";
+        std::cout << "  " << (i+1) << ". [" << std::fixed
+                  << std::setprecision(3) << results[i].score << "] "
+                  << results[i].title << "\n";
     }
-
-    std::cout << "└─────────────────────────────────────────────────────┘\n";
 }
 
-// ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
 // main
-// ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
 
 int main(int argc, char* argv[])
 {
     using namespace sl;
 
-    utils::Logger::info("SmartLibrarian — Phase 2: Search Engine Demo");
+    utils::Logger::info("SmartLibrarian — Phase 3: OCR Pipeline");
 
-    // ── PHASE 2: Search Engine ───────────────────────────────────
+    // ── Initialize OCR Engine ────────────────────────────────────
+    // Expensive — do this ONCE. ~100-300ms on first call.
+    utils::Logger::info("Initializing Tesseract OCR engine...");
 
-    search::SearchEngine engine;
+    std::unique_ptr<ocr::OcrEngine> ocrEngine;
+    bool ocrAvailable = false;
 
-    // Index all sample documents
-    utils::Logger::info("Indexing documents...");
-    for (int i = 0; i < k_docCount; ++i) {
-        search::DocumentID id = engine.indexDocument(
-            k_sampleDocs[i].path,
-            k_sampleDocs[i].title,
-            k_sampleDocs[i].content
-        );
-        std::cout << "  Indexed [ID=" << id << "] "
-                  << k_sampleDocs[i].title << "\n";
+    try {
+        ocrEngine = std::make_unique<ocr::OcrEngine>("", "eng");
+        ocrAvailable = true;
+        utils::Logger::info(
+            "Tesseract initialized. Version: " + ocrEngine->getVersion());
+    }
+    catch (const std::exception& ex) {
+        utils::Logger::warning(
+            std::string("OCR init failed (demo will use synthetic text): ")
+            + ex.what());
     }
 
-    std::cout << "\n  Total documents : " << engine.documentCount()  << "\n";
-    std::cout << "  Unique words    : " << engine.uniqueWordCount() << "\n";
-    std::cout << "  Trie nodes      : " << engine.trieNodeCount()   << "\n";
+    // ── Initialize Search Engine ─────────────────────────────────
+    search::SearchEngine searchEngine;
 
-    // ── Run search queries ───────────────────────────────────────
+    // ── Process Images via OCR ───────────────────────────────────
+    const std::string testImagePath =
+        "../../assets/test_images/test_document.png";
 
-    // Query 1: single high-relevance term
-    printResults(engine.search("neural"), "neural");
+    if (ocrAvailable) {
+        utils::Logger::info("Processing test image: " + testImagePath);
 
-    // Query 2: multi-term — should rank neural doc highest
-    printResults(engine.search("neural network layers"), "neural network layers");
+        // Check if the test image exists
+        if (ocr::ImageLoader::isSupported(testImagePath)) {
+            try {
+                ocr::OcrResult result = ocrEngine->processFile(testImagePath);
+                printOcrResult(result, "test_document.png");
 
-    // Query 3: data structures query
-    printResults(engine.search("hash table binary search"), "hash table binary search");
-
-    // Query 4: cross-document term (memory appears in multiple docs)
-    printResults(engine.search("memory allocation"), "memory allocation");
-
-    // Query 5: no results
-    printResults(engine.search("quantum entanglement"), "quantum entanglement");
-
-    // ── Prefix search (autocomplete) ─────────────────────────────
-    std::cout << "\n── Prefix Search (autocomplete) ──────────────────────\n";
-
-    auto showPrefix = [&](std::string_view prefix) {
-        auto words = engine.prefixSearch(prefix, 8);
-        std::cout << "  \"" << prefix << "\" → [";
-        for (std::size_t i = 0; i < words.size(); ++i) {
-            if (i > 0) std::cout << ", ";
-            std::cout << words[i];
+                if (result.success && !result.fullText.empty()) {
+                    // Feed OCR output directly into the search engine
+                    search::DocumentID id = searchEngine.indexDocument(
+                        testImagePath,
+                        "OCR: Test Document",
+                        result.fullText
+                    );
+                    utils::Logger::info(
+                        "Indexed OCR document [ID=" +
+                        std::to_string(id) + "]"
+                    );
+                }
+            }
+            catch (const std::exception& ex) {
+                utils::Logger::error(
+                    std::string("OCR processing error: ") + ex.what());
+            }
+        } else {
+            utils::Logger::warning(
+                "Test image not found at: " + testImagePath +
+                "\nRun: convert -size 800x600 -background white -fill black "
+                "-font DejaVu-Sans -pointsize 24 -gravity NorthWest "
+                "-annotate +40+40 'OCR test text' "
+                "assets/test_images/test_document.png"
+            );
         }
-        std::cout << "]\n";
+    }
+
+    // ── Also index synthetic documents for richer demo ───────────
+    utils::Logger::info("Indexing synthetic document corpus...");
+
+    struct Doc { const char* path; const char* title; const char* content; };
+    static const Doc docs[] = {
+        {
+            "docs/neural.txt",
+            "Neural Networks",
+            "Neural networks use interconnected layers of neurons for deep learning. "
+            "Backpropagation computes gradients to train neural network weights. "
+            "Convolutional neural networks process image data efficiently."
+        },
+        {
+            "docs/cpp_memory.txt",
+            "C++ Memory Management",
+            "Stack allocation is automatic and fast in C++. Heap allocation uses "
+            "new and delete. Smart pointers provide automatic memory management. "
+            "RAII ensures resources release when objects go out of scope."
+        },
+        {
+            "docs/algorithms.txt",
+            "Algorithm Complexity",
+            "Binary search achieves O(log n) complexity on sorted arrays. "
+            "Quicksort averages O(n log n). Hash tables provide O(1) lookup. "
+            "Dynamic programming breaks problems into overlapping subproblems."
+        },
+        {
+            "docs/ocr_tech.txt",
+            "OCR Technology",
+            "Optical character recognition extracts text from scanned images. "
+            "Tesseract uses neural networks to recognize characters. "
+            "Image preprocessing improves OCR accuracy significantly. "
+            "Binarization and noise removal are critical preprocessing steps."
+        }
     };
 
-    showPrefix("ne");
-    showPrefix("mem");
-    showPrefix("alg");
-    showPrefix("comp");
-    showPrefix("tr");
+    for (const auto& doc : docs) {
+        search::DocumentID id = searchEngine.indexDocument(
+            doc.path, doc.title, doc.content);
+        std::cout << "  Indexed [ID=" << id << "] " << doc.title << "\n";
+    }
 
-    // ── PHASE 1: Generate PDF of search results ──────────────────
-    utils::Logger::info("\nGenerating search results PDF...");
+    std::cout << "\n  Index: "
+              << searchEngine.documentCount()  << " docs, "
+              << searchEngine.uniqueWordCount() << " unique words\n";
+
+    // ── Run Searches ─────────────────────────────────────────────
+    std::cout << "\n── Search Results ─────────────────────────────────────\n";
+    printResults(searchEngine.search("neural network"),    "neural network");
+    printResults(searchEngine.search("memory management"), "memory management");
+    printResults(searchEngine.search("ocr image text"),    "ocr image text");
+    printResults(searchEngine.search("algorithm complexity"), "algorithm complexity");
+
+    // ── Autocomplete ─────────────────────────────────────────────
+    std::cout << "\n── Autocomplete ───────────────────────────────────────\n";
+    for (const char* prefix : {"neur", "mem", "alg", "ocr", "pre"}) {
+        auto words = searchEngine.prefixSearch(prefix, 5);
+        std::cout << "  \"" << prefix << "\" → ";
+        for (std::size_t i = 0; i < words.size(); ++i) {
+            if (i) std::cout << ", ";
+            std::cout << words[i];
+        }
+        std::cout << "\n";
+    }
+
+    // ── Generate PDF Report ──────────────────────────────────────
+    utils::Logger::info("\nGenerating Phase 3 PDF report...");
 
     pdf::PdfDocument doc;
     doc.addFont("F1", "Helvetica");
     doc.addFont("F2", "Helvetica-Bold");
     doc.addFont("F3", "Courier");
 
+    // Page 1: Pipeline overview
     {
         pdf::PdfPage& page = doc.addPage();
 
-        // Header bar
-        page.setFillColor(0.15f, 0.35f, 0.65f);
+        page.setFillColor(0.1f, 0.3f, 0.6f);
         page.fillRect(0, 750, 612, 42);
 
         page.beginText();
         page.setTextColor(1.0f, 1.0f, 1.0f);
         page.setFont("F2", 20.0f);
         page.moveTo(72.0f, 762.0f);
-        page.showText("SmartLibrarian — Search Index Report");
+        page.showText("SmartLibrarian — OCR Pipeline Report");
         page.endText();
 
-        page.setStrokeColor(0.15f, 0.35f, 0.65f);
+        page.setStrokeColor(0.1f, 0.3f, 0.6f);
         page.drawLine(72, 730, 540, 730, 1.0f);
 
         page.beginText();
         page.setTextColor(0.1f, 0.1f, 0.1f);
-        page.setFont("F2", 12.0f);
+        page.setFont("F2", 13.0f);
         page.moveTo(72.0f, 705.0f);
-        page.showText("Index Statistics");
+        page.showText("OCR Pipeline Stages:");
+
+        page.setFont("F3", 10.0f);
+        page.setLeading(17.0f);
+        page.moveTo(72.0f, 685.0f);
+
+        const char* stages[] = {
+            "  1. ImageLoader       Load PNG/JPG/TIFF into ImageBuffer (RAII)",
+            "  2. toGrayscale       ITU-R BT.601: Y = 0.299R + 0.587G + 0.114B",
+            "  3. normalizeContrast Histogram stretch: min->0, max->255",
+            "  4. scale             2x nearest-neighbor upscale for small text",
+            "  5. binarize          Otsu's adaptive thresholding algorithm",
+            "  6. removeNoise       3x3 median filter (preserves text edges)",
+            "  7. Tesseract::Init   Load eng.traineddata (LSTM neural network)",
+            "  8. SetImage          Pass pixel buffer to Tesseract (no copy)",
+            "  9. Recognize         Character segmentation + classification",
+            " 10. ResultIterator    Extract words + per-word confidence scores",
+            " 11. Filter            Discard words below confidence threshold",
+            " 12. SearchEngine      Index filtered text for full-text search",
+            nullptr
+        };
+
+        for (int i = 0; stages[i]; ++i) {
+            page.showText(stages[i]);
+            page.nextLine();
+        }
+
+        // Search stats box
+        page.setFont("F2", 12.0f);
+        page.moveTo(72.0f, 440.0f);
+        page.showText("Search Index Statistics:");
 
         page.setFont("F1", 11.0f);
         page.setLeading(18.0f);
-        page.moveTo(72.0f, 685.0f);
-        page.showText("Documents indexed : " +
-                      std::to_string(engine.documentCount()));
+        page.moveTo(72.0f, 420.0f);
+        page.showText("Documents: " +
+                      std::to_string(searchEngine.documentCount()));
         page.nextLine();
-        page.showText("Unique words      : " +
-                      std::to_string(engine.uniqueWordCount()));
+        page.showText("Unique words: " +
+                      std::to_string(searchEngine.uniqueWordCount()));
         page.nextLine();
-        page.showText("Trie nodes        : " +
-                      std::to_string(engine.trieNodeCount()));
-        page.nextLine();
-        page.nextLine();
-
-        page.setFont("F2", 12.0f);
-        page.showText("Query: \"neural network layers\"");
-        page.nextLine();
-
-        auto results = engine.search("neural network layers", 5);
-        page.setFont("F3", 10.0f);
-        page.setLeading(16.0f);
-        for (std::size_t i = 0; i < results.size(); ++i) {
-            std::string line =
-                std::to_string(i + 1) + ". " +
-                results[i].title +
-                "  [score: " +
-                std::to_string(results[i].score).substr(0, 6) + "]";
-            page.showText(line);
-            page.nextLine();
-        }
+        page.showText("Trie nodes: " +
+                      std::to_string(searchEngine.trieNodeCount()));
         page.endText();
 
         page.setStrokeColor(0.7f, 0.7f, 0.7f);
@@ -241,13 +283,13 @@ int main(int argc, char* argv[])
         page.setTextColor(0.5f, 0.5f, 0.5f);
         page.setFont("F1", 9.0f);
         page.moveTo(72.0f, 45.0f);
-        page.showText("SmartLibrarian v0.1.0 — Phase 2 Report");
+        page.showText("SmartLibrarian v0.1.0 — Phase 3: OCR Pipeline");
         page.endText();
     }
 
-    doc.save("SmartLibrarian_Phase2.pdf");
-    utils::Logger::info("PDF saved: SmartLibrarian_Phase2.pdf");
+    doc.save("SmartLibrarian_Phase3.pdf");
+    utils::Logger::info("PDF saved: SmartLibrarian_Phase3.pdf");
 
-    core::Application app(argc, argv);
+    sl::core::Application app(argc, argv);
     return app.run();
 }

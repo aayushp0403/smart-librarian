@@ -2,6 +2,7 @@ add_subdirectory(core)
 add_subdirectory(utils)
 add_subdirectory(pdf)
 add_subdirectory(search)
+add_subdirectory(ocr)
 
 add_executable(SmartLibrarian
     main.cpp
@@ -16,4 +17,5 @@ target_link_libraries(SmartLibrarian PRIVATE
     sl_utils
     sl_pdf
     sl_search
+    sl_ocr
 )

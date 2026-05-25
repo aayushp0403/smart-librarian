@@ -14,16 +14,6 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-      with:
-        submodules: false
-
-    - name: Cache vcpkg
-      uses: actions/cache@v3
-      with:
-        path: ~/vcpkg
-        key: vcpkg-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt') }}
-        restore-keys: |
-          vcpkg-${{ runner.os }}-
 
     - name: Install system dependencies
       run: |
@@ -50,67 +40,50 @@ jobs:
           libxcb-render-util0-dev \
           libxcb-xkb-dev \
           libxkbcommon-x11-dev \
-          libxcb-cursor-dev
+          libxcb-cursor-dev \
+          libgtest-dev
 
-    - name: Setup vcpkg
+    # ── vcpkg only for stb (Tesseract comes from apt above) ──────────
+    - name: Cache vcpkg
+      uses: actions/cache@v3
+      with:
+        path: ~/vcpkg
+        key: vcpkg-${{ runner.os }}-stb-v1
+        restore-keys: vcpkg-${{ runner.os }}-
+
+    - name: Setup vcpkg and install stb
       run: |
         if [ ! -d "$HOME/vcpkg" ]; then
           git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
           ~/vcpkg/bootstrap-vcpkg.sh -disableMetrics
         fi
-        ~/vcpkg/vcpkg install gtest:x64-linux stb:x64-linux
+        ~/vcpkg/vcpkg install stb:x64-linux
 
     - name: Configure CMake
       run: |
         cmake -S . -B build -G Ninja \
           -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_TOOLCHAIN_FILE="$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake"
+          -DCMAKE_TOOLCHAIN_FILE="$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake" \
+          -DSL_USE_SYSTEM_TESSERACT=ON \
+          -DSL_USE_SYSTEM_GTEST=ON
 
     - name: Build
       run: cmake --build build -- -j$(nproc)
 
-    - name: Run tests
+    - name: Run unit tests
       run: |
         cd build
-        # GUI tests require a display — skip them in CI
-        # Unit tests for search, pdf, archive, ocr run headlessly
         ctest --output-on-failure \
               --parallel $(nproc) \
-              --exclude-regex ".*gui.*"
+              --exclude-regex ".*gui.*" \
+              --timeout 120
 
+    # ── v4 fixes the deprecated v3 error ─────────────────────────────
     - name: Upload test results
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
-        name: test-results
+        name: test-results-${{ github.run_id }}
         path: build/Testing/
+        if-no-files-found: ignore
 
-  # Separate job: just verify the code compiles with warnings-as-errors
-  lint:
-    name: Compile Check
-    runs-on: ubuntu-22.04
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Install dependencies
-      run: |
-        sudo apt-get update -qq
-        sudo apt-get install -y \
-          build-essential cmake ninja-build \
-          qt6-base-dev libgl1-mesa-dev \
-          tesseract-ocr libtesseract-dev libleptonica-dev
-
-    - name: Setup vcpkg
-      run: |
-        git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
-        ~/vcpkg/bootstrap-vcpkg.sh -disableMetrics
-        ~/vcpkg/vcpkg install gtest:x64-linux stb:x64-linux
-
-    - name: Configure with strict warnings
-      run: |
-        cmake -S . -B build -G Ninja \
-          -DCMAKE_BUILD_TYPE=Debug \
-          -DCMAKE_TOOLCHAIN_FILE="$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake"
-
-    - name: Build
-      run: cmake --build build -- -j$(nproc)

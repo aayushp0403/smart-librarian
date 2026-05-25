@@ -6,7 +6,7 @@
 
 **An intelligent document archival system built from scratch in C++17**
 
-[![Build Status](https://img.shields.io/github/actions/workflow/status/your_actual_username_here/smart-librarian/ci.yml?branch=main&style=flat-square)](https://github.com/your_actual_username_here/smart-librarian/actions)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/aayushp0403/smart-librarian/ci.yml?branch=main&style=flat-square)](https://github.com/aayushp0403/smart-librarian/actions)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-blue?style=flat-square)](https://en.cppreference.com/w/cpp/17)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-47%20passing-brightgreen?style=flat-square)](#testing)

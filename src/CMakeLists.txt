@@ -4,6 +4,7 @@ add_subdirectory(pdf)
 add_subdirectory(search)
 add_subdirectory(ocr)
 add_subdirectory(gui)
+add_subdirectory(archive)
 
 add_executable(SmartLibrarian
     main.cpp
@@ -20,6 +21,7 @@ target_link_libraries(SmartLibrarian PRIVATE
     sl_search
     sl_ocr
     sl_gui
+    sl_archive
     Qt6::Core
     Qt6::Widgets
     Qt6::Gui

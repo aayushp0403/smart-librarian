@@ -2,7 +2,8 @@
 #include "gui/OcrWorker.h"
 #include "ocr/OcrEngine.h"
 #include "search/SearchEngine.h"
-
+#include <QCloseEvent>
+#include "utils/Logger.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QSplitter>
@@ -19,6 +20,7 @@
 #include <QFrame>
 #include <QFileDialog>
 
+
 namespace sl {
 namespace gui {
 
@@ -29,6 +31,7 @@ namespace gui {
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
     , m_searchEngine(std::make_unique<sl::search::SearchEngine>())
+    , m_persistence(std::make_unique<sl::archive::PersistenceManager>())
 {
     setWindowTitle("SmartLibrarian — Intelligent Document Archive");
     setMinimumSize(920, 660);
@@ -42,7 +45,10 @@ MainWindow::MainWindow(QWidget* parent)
     }
 
     setupUi();
-    seedDemoDocuments();
+    loadAll();                          // ← restore saved session
+    if (!m_demoDataLoaded) {
+        seedDemoDocuments();            // ← only seed if nothing was loaded
+    }
     setupOcrThread();
 }
 
@@ -553,5 +559,96 @@ void MainWindow::setProcessingState(bool processing)
     }
 }
 
+
+
+// ─────────────────────────────────────────────────────────────────────
+// closeEvent — Qt calls this when the user closes the window.
+// We save everything before allowing the close to proceed.
+// Calling event->accept() allows the close; ignore() would cancel it.
+// ─────────────────────────────────────────────────────────────────────
+
+void MainWindow::closeEvent(QCloseEvent* event)
+{
+    statusBar()->showMessage("Saving data...");
+    QApplication::processEvents();
+
+    saveAll();
+
+    event->accept();  // allow the window to close
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// saveAll
+// ─────────────────────────────────────────────────────────────────────
+
+void MainWindow::saveAll()
+{
+    if (!m_persistence) return;
+
+    // Update config with current state
+    m_config.maxSearchResults = 20;
+
+    m_persistence->saveConfig(m_config);
+    m_persistence->saveIndex(*m_searchEngine);
+    m_persistence->saveArchive(m_archiveWidget->getDocuments());
+
+    sl::utils::Logger::info("All data saved to " +
+                            m_persistence->dataDirectory());
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// loadAll — called during construction, before window is shown
+// ─────────────────────────────────────────────────────────────────────
+
+void MainWindow::loadAll()
+{
+    if (!m_persistence) return;
+
+    // Load config
+    m_persistence->loadConfig(m_config);
+
+    // Load search index
+    bool indexLoaded = m_persistence->loadIndex(*m_searchEngine);
+
+    // Load archive documents
+    std::vector<sl::gui::ArchivedDocument> savedDocs;
+    bool archiveLoaded = m_persistence->loadArchive(savedDocs);
+
+    if (archiveLoaded && !savedDocs.empty()) {
+        // Restore nextDocId to be beyond all loaded document IDs
+        for (const auto& doc : savedDocs) {
+            if (doc.id >= m_nextDocId) {
+                m_nextDocId = doc.id + 1;
+            }
+            m_archiveWidget->addDocument(doc);
+        }
+    }
+
+    if (indexLoaded || archiveLoaded) {
+        sl::utils::Logger::info(
+            "Session restored: " +
+            std::to_string(m_searchEngine->documentCount()) +
+            " docs in index, " +
+            std::to_string(savedDocs.size()) +
+            " docs in archive");
+        m_demoDataLoaded = true;  // skip seeding demo data
+    }
+
+    if (m_searchWidget) {
+        m_searchWidget->refreshResults();
+    }
+
+    if (m_quickStatsLabel) {
+        if (indexLoaded) {
+            m_quickStatsLabel->setText(
+                QString("Restored: %1 docs  |  %2 unique words")
+                    .arg(m_searchEngine->documentCount())
+                    .arg(m_searchEngine->uniqueWordCount()));
+        } else {
+            m_quickStatsLabel->setText(
+                "No saved data found.\nDemo data loaded.");
+        }
+    }
+}
 } // namespace gui
 } // namespace sl

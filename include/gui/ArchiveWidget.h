@@ -1,3 +1,4 @@
+
 #pragma once
 
 #include <QWidget>
@@ -8,35 +9,21 @@
 #include <string>
 
 namespace sl { namespace search { class SearchEngine; } }
-namespace sl { namespace pdf    { class PdfDocument;  } }
 
 namespace sl {
 namespace gui {
 
-/**
- * ArchivedDocument
- *
- * Lightweight record of a document that has been processed.
- * Separate from SearchEngine's internal DocumentInfo to keep
- * the UI layer decoupled from the search layer.
- */
 struct ArchivedDocument
 {
-    int         id;
+    int         id            { 0 };
     std::string filename;
     std::string fullPath;
     std::string extractedText;
-    float       ocrConfidence;
-    int         wordCount;
+    float       ocrConfidence { 0.0f };
+    int         wordCount     { 0 };
     std::string timestamp;
 };
 
-/**
- * ArchiveWidget
- *
- * Shows all processed documents in a table.
- * Provides PDF export for selected documents.
- */
 class ArchiveWidget : public QWidget
 {
     Q_OBJECT
@@ -46,12 +33,15 @@ public:
                            QWidget* parent = nullptr);
     ~ArchiveWidget() override = default;
 
-    /**
-     * addDocument — add a newly processed document to the archive.
-     */
     void addDocument(const ArchivedDocument& doc);
+    int  documentCount() const;
 
-    int documentCount() const;
+    /**
+     * getDocuments — read-only access for PersistenceManager to save.
+     */
+    const std::vector<ArchivedDocument>& getDocuments() const {
+        return m_documents;
+    }
 
 signals:
     void exportPdfRequested(const std::vector<int>& selectedIds);
@@ -65,12 +55,12 @@ private slots:
 private:
     void rebuildTable();
 
-    sl::search::SearchEngine*       m_engine;
-    std::vector<ArchivedDocument>   m_documents;
+    sl::search::SearchEngine*     m_engine    { nullptr };
+    std::vector<ArchivedDocument> m_documents;
 
-    QTableWidget* m_table       { nullptr };
-    QLabel*       m_statsLabel  { nullptr };
-    QPushButton*  m_exportBtn   { nullptr };
+    QTableWidget* m_table      { nullptr };
+    QLabel*       m_statsLabel { nullptr };
+    QPushButton*  m_exportBtn  { nullptr };
 };
 
 } // namespace gui

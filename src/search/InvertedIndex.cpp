@@ -143,5 +143,41 @@ void InvertedIndex::clear()
     m_nextDocId = 1;
 }
 
+
+
+// ─────────────────────────────────────────────────────────────────────
+// Persistence support methods
+// ─────────────────────────────────────────────────────────────────────
+
+void InvertedIndex::registerDocumentWithId(
+    DocumentID         id,
+    const std::string& path,
+    const std::string& title,
+    uint32_t           totalWords)
+{
+    m_documents.emplace(id, DocumentInfo{ id, path, title, totalWords });
+    // Track highest ID seen so syncNextDocId works correctly
+    if (id >= m_nextDocId) {
+        m_nextDocId = id + 1;
+    }
+}
+
+void InvertedIndex::addPostingDirect(
+    const std::string& word,
+    DocumentID         docId,
+    uint32_t           termFreq,
+    uint32_t           firstPosition)
+{
+    m_index[word].push_back(Posting{ docId, termFreq, firstPosition });
+}
+
+void InvertedIndex::syncNextDocId()
+{
+    DocumentID maxId = 0;
+    for (const auto& [id, _] : m_documents) {
+        if (id > maxId) maxId = id;
+    }
+    m_nextDocId = maxId + 1;
+}
 } // namespace search
 } // namespace sl

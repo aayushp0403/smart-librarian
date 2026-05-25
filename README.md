@@ -136,7 +136,7 @@ git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
 ### Build
 
 ```bash
-git clone https://github.com/your_actual_username_here/smart-librarian.git
+git clone https://github.com/aayushp0403/smart-librarian.git
 cd smart-librarian
 
 cmake -S . -B build -G Ninja \

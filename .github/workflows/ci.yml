@@ -50,7 +50,9 @@ jobs:
           libxcb-render-util0-dev \
           libxcb-xkb-dev \
           libxkbcommon-x11-dev \
-          libxcb-cursor-dev
+          libxcb-cursor-dev \
+          libtesseract-dev \
+          libleptonica-dev
 
     - name: Setup vcpkg
       run: |

@@ -6,6 +6,28 @@ if you're reading the source code.
 ---
 
 ## Module Dependency Graph
+
+main.cpp
+│
+├── gui/MainWindow
+│       ├── gui/OcrWorker ──────► ocr/OcrEngine
+│       │                              └── ocr/ImagePreprocessor
+│       ├── gui/SearchWidget ───► search/SearchEngine
+│       │                              ├── search/Trie
+│       │                              ├── search/InvertedIndex
+│       │                              └── search/TextProcessor
+│       ├── gui/ArchiveWidget
+│       └── gui/DropZone
+│
+├── archive/PersistenceManager
+│       ├── archive/BinaryWriter
+│       └── archive/BinaryReader
+│
+└── pdf/PdfDocument
+├── pdf/PdfWriter
+├── pdf/PdfPage
+└── pdf/PdfStream
+
 Dependencies flow downward only. No circular dependencies.
 
 ---
@@ -55,6 +77,15 @@ to the problem.
 ---
 
 ## Threading Model
+
+Main Thread (Qt event loop)
+All widget reads and writes happen here.
+Never block this thread.
+OCR Thread (QThread)
+OcrWorker::process() runs here.
+Never touch widgets from this thread.
+Communicate back via signals only.
+
 Cross-thread signal/slot connections are automatically queued by Qt.
 No mutexes needed for the communication itself. The OcrEngine is
 accessed only from the OCR thread after initial construction.
@@ -64,10 +95,43 @@ accessed only from the OCR thread after initial construction.
 ## Binary Format Spec
 
 ### index.slidx
+
+Offset  Size  Type     Description
+0       8     bytes    Magic: "SLIDX001"
+8       4     uint32   Format version (currently 1)
+12      4     uint32   Document count N
+16      ...   records  N document records:
+4   uint32  Document ID
+var string  Path (length-prefixed UTF-8)
+var string  Title
+4   uint32  Total word count
+...     4     uint32   Unique word count M
+...     ...   records  M word records:
+var string  Word
+4   uint32  Posting count P
+...         P posting records:
+4  uint32  Document ID
+4  uint32  Term frequency
+4  uint32  First position
+
 String encoding: `[uint32_t length][char* bytes]`
 No null terminator. All integers little-endian.
 
 ### archive.slarc
+
+Offset  Size  Type     Description
+0       8     bytes    Magic: "SLARC001"
+8       4     uint32   Format version
+12      4     uint32   Document count N
+16      ...   records  N document records:
+4   uint32  ID
+var string  Filename
+var string  Full path
+var string  Extracted text
+4   float32 OCR confidence (IEEE 754)
+4   uint32  Word count
+var string  Timestamp
+
 ---
 
 ## Test Strategy

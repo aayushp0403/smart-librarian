@@ -112,6 +112,7 @@ Common words that appear everywhere get low IDF scores. Rare, specific words tha
 
 Raw scans are noisy. Running Tesseract directly on an unprocessed image gives poor results. The preprocessing pipeline runs five stages:
 
+```text
 RGB image
 |
 ▼ toGrayscale()    ITU-R BT.601: Y = 0.299R + 0.587G + 0.114B
@@ -129,6 +130,7 @@ RGB image
                    (replaces each pixel with the median of its
                     9-pixel neighborhood — removes speckles
                     without blurring text edges)
+```
 
 **Key files:** `src/ocr/ImagePreprocessor.cpp`, `src/ocr/OcrEngine.cpp`
 
@@ -168,6 +170,7 @@ Main Thread                     OCR Thread
 | ◀──emit ocrCompleted(text)────|
 | index document                |
 | update archive                |
+```
 
 Cross-thread signals are automatically queued by Qt — the receiving slot always runs on its own thread's event loop. No mutexes needed for the signal/slot communication itself.
 
@@ -198,6 +201,7 @@ smart-librarian/
 │   ├── screenshots/ README images
 │   └── test_images/ Sample images for manual testing
 └── docs/            Architecture notes
+```
 
 ---
 

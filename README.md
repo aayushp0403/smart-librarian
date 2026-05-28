@@ -21,6 +21,8 @@ not just "it works" but understanding every byte, every allocation, and every de
 
 ## What Is This?
 
+https://github.com/user-attachments/assets/9babd85d-9619-496c-b28b-729c2dab2743
+
 SmartLibrarian lets you drop a scanned document image into a desktop app, extract all the text using OCR, and then search across everything you've ever processed — instantly.
 
 The interesting part isn't the feature. It's how it's built:

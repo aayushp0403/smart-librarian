@@ -61,6 +61,7 @@ A PDF is a structured binary file where every object (pages, fonts, content stre
 
 The challenge: you can't write the cross-reference table until you know the byte offset of every object, but you need to reference objects before you've written them. Solution: pre-allocate all object numbers first, then record each object's byte offset as it's written, and serialize the xref table at the end using those recorded offsets.
 
+```text
 %PDF-1.7
 <binary marker bytes>
 
@@ -79,6 +80,7 @@ trailer << /Size 6 /Root 1 0 R >>
 startxref
 [byte offset of xref]
 %%EOF
+```
 
 The xref entries are exactly 20 bytes wide — fixed width so readers can binary search them.
 
@@ -98,6 +100,7 @@ The search engine has two separate data structures for two separate problems.
 TF = (occurrences in this doc) / (total words in this doc)
 IDF = log( (1 + total docs) / (1 + docs containing word) ) + 1
 score = TF × IDF
+```
 
 Common words that appear everywhere get low IDF scores. Rare, specific words that appear frequently in one document get high scores. That's relevance ranking.
 

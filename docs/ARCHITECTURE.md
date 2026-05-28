@@ -7,6 +7,7 @@ if you're reading the source code.
 
 ## Module Dependency Graph
 
+```text
 main.cpp
 │
 ├── gui/MainWindow
@@ -27,6 +28,7 @@ main.cpp
 ├── pdf/PdfWriter
 ├── pdf/PdfPage
 └── pdf/PdfStream
+```
 
 Dependencies flow downward only. No circular dependencies.
 
@@ -78,6 +80,7 @@ to the problem.
 
 ## Threading Model
 
+```text
 Main Thread (Qt event loop)
 All widget reads and writes happen here.
 Never block this thread.
@@ -85,6 +88,7 @@ OCR Thread (QThread)
 OcrWorker::process() runs here.
 Never touch widgets from this thread.
 Communicate back via signals only.
+```
 
 Cross-thread signal/slot connections are automatically queued by Qt.
 No mutexes needed for the communication itself. The OcrEngine is
@@ -96,6 +100,7 @@ accessed only from the OCR thread after initial construction.
 
 ### index.slidx
 
+```text
 Offset  Size  Type     Description
 0       8     bytes    Magic: "SLIDX001"
 8       4     uint32   Format version (currently 1)
@@ -113,12 +118,14 @@ var string  Word
 4  uint32  Document ID
 4  uint32  Term frequency
 4  uint32  First position
+```
 
 String encoding: `[uint32_t length][char* bytes]`
 No null terminator. All integers little-endian.
 
 ### archive.slarc
 
+```text
 Offset  Size  Type     Description
 0       8     bytes    Magic: "SLARC001"
 8       4     uint32   Format version
@@ -131,6 +138,7 @@ var string  Extracted text
 4   float32 OCR confidence (IEEE 754)
 4   uint32  Word count
 var string  Timestamp
+```
 
 ---
 

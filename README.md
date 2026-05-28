@@ -63,15 +63,18 @@ The challenge: you can't write the cross-reference table until you know the byte
 
 %PDF-1.7
 <binary marker bytes>
-1 0 obj  << /Type /Catalog /Pages 2 0 R >>  endobj
-2 0 obj  << /Type /Pages /Kids [3 0 R] /Count 1 >>  endobj
+
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
 ...
+
 xref
 0 6
-0000000000 65535 f    ← free list head (always)
-0000000009 00000 n    ← object 1 starts at byte 9
-0000000058 00000 n    ← object 2 starts at byte 58
+0000000000 65535 f  ← free list head (always)
+0000000009 00000 n  ← object 1 starts at byte 9
+0000000058 00000 n  ← object 2 starts at byte 58
 ...
+
 trailer << /Size 6 /Root 1 0 R >>
 startxref
 [byte offset of xref]
@@ -91,7 +94,8 @@ The search engine has two separate data structures for two separate problems.
 
 **Inverted Index** — for ranked search. Maps every word to its posting list: the documents containing it, how many times it appears in each, and its first position. TF-IDF scoring ranks results:
 
-TF  = (occurrences in this doc) / (total words in this doc)
+```text
+TF = (occurrences in this doc) / (total words in this doc)
 IDF = log( (1 + total docs) / (1 + docs containing word) ) + 1
 score = TF × IDF
 
@@ -106,22 +110,22 @@ Common words that appear everywhere get low IDF scores. Rare, specific words tha
 Raw scans are noisy. Running Tesseract directly on an unprocessed image gives poor results. The preprocessing pipeline runs five stages:
 
 RGB image
-│
-▼ toGrayscale()        ITU-R BT.601: Y = 0.299R + 0.587G + 0.114B
-│                       (weighted because eyes are more sensitive to green)
-▼ normalizeContrast()  Stretch histogram so min→0, max→255
-│                       (fixes faded photocopies)
-▼ scale(2x)            Nearest-neighbor upscale
-│                       (nearest-neighbor keeps text edges sharp —
-│                        bilinear would create gray anti-aliased pixels
-│                        that confuse the classifier)
-▼ binarize()           Otsu's adaptive thresholding
-│                       (finds the optimal black/white split point
-│                        from the actual image histogram — no hardcoded value)
-▼ removeNoise()        3×3 median filter
-(replaces each pixel with the median of its
-9-pixel neighborhood — removes speckles
-without blurring text edges)
+|
+▼ toGrayscale()    ITU-R BT.601: Y = 0.299R + 0.587G + 0.114B
+|                  (weighted because eyes are more sensitive to green)
+▼ normalizeContrast() Stretch histogram so min→0, max→255
+|                  (fixes faded photocopies)
+▼ scale(2x)        Nearest-neighbor upscale
+|                  (nearest-neighbor keeps text edges sharp —
+|                   bilinear would create gray anti-aliased pixels
+|                   that confuse the classifier)
+▼ binarize()       Otsu's adaptive thresholding
+|                  (finds the optimal black/white split point
+|                   from the actual image histogram — no hardcoded value)
+▼ removeNoise()    3×3 median filter
+                   (replaces each pixel with the median of its
+                    9-pixel neighborhood — removes speckles
+                    without blurring text edges)
 
 **Key files:** `src/ocr/ImagePreprocessor.cpp`, `src/ocr/OcrEngine.cpp`
 
@@ -147,19 +151,20 @@ OCR takes 1-3 seconds per image. Running it on the main thread would freeze the 
 
 The solution is Qt's worker-object pattern:
 
-Main Thread                          OCR Thread
-│                                    │
-│  user drops image                  │
-│  ──emit startOcrProcessing──►      │
-│                              OcrWorker::process()
-│                              [loads image]
-│                              [preprocesses]
-│  ◄──emit progressUpdated(30%)──    │
-│  progress bar updates              │
-│                              [runs Tesseract]
-│  ◄──emit ocrCompleted(text)────    │
-│  index document                    │
-│  update archive                    │
+```text
+Main Thread                     OCR Thread
+|                               |
+| user drops image              |
+| ──emit startOcrProcessing────▶|
+|                               OcrWorker::process()
+|                               [loads image]
+|                               [preprocesses]
+| ◀──emit progressUpdated(30%)──|
+| progress bar updates          |
+|                               [runs Tesseract]
+| ◀──emit ocrCompleted(text)────|
+| index document                |
+| update archive                |
 
 Cross-thread signals are automatically queued by Qt — the receiving slot always runs on its own thread's event loop. No mutexes needed for the signal/slot communication itself.
 
@@ -169,6 +174,7 @@ Cross-thread signals are automatically queued by Qt — the receiving slot alway
 
 ## Project Structure
 
+```text
 smart-librarian/
 ├── src/
 │   ├── core/        Application lifecycle

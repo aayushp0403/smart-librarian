@@ -308,9 +308,5 @@ MIT — see [LICENSE](LICENSE)
 
 ---
 
-<div align="center">
-<sub>Built with way too much time spent reading PDF spec documents and Tesseract source code</sub>
-</div>
-README_EOF
 
 
